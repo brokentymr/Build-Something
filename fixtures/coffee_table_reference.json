@@ -1,0 +1,11 @@
+{
+  "node": "coffee_table",
+  "overall_length": 42,
+  "overall_width": 20,
+  "overall_height": 16,
+  "slab_edge_thickness": 3,
+  "base_type": "plinth",
+  "finish_system": "microcement_over_cement_board",
+  "plinth_inset": 3,
+  "assembly": "single_monolith"
+}
