@@ -57,6 +57,9 @@ class Registry:
     def question_graph(self, node_id: str) -> QuestionGraph:
         return QuestionGraph(self._questions[node_id])
 
+    def questions(self, node_id: str) -> list[Question]:
+        return list(self._questions[node_id])
+
     def schema(self, node_id: str) -> dict:
         return self.leaf_module(node_id).SCHEMA
 

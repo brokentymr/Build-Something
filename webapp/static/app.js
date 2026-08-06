@@ -61,7 +61,11 @@ async function startWith(node){
   openProject(p.id);
 }
 function handleIntake(pid, res){
-  if(res.outcome==='resolved'){ openProject(pid); return; }
+  if(res.outcome==='resolved'){
+    if(res.extracted && res.extracted.length) go(()=>confirmScreen(pid,res));
+    else openProject(pid);
+    return;
+  }
   const out = $('#intake-out');
   if(res.outcome==='disambiguate'){
     out.innerHTML = `<div class="card"><div class="q"><p class="prompt">${esc(res.message)}</p>
@@ -79,6 +83,22 @@ function handleIntake(pid, res){
       <div class="chips">${(res.known||[]).map(n=>`<button class="chip" data-node="${n}">${esc(n.replace('_',' '))}</button>`).join('')}</div>`;
     out.querySelectorAll('.chip').forEach(c=> c.onclick=()=>startWith(c.dataset.node));
   }
+}
+
+// ---------------------------------------------------------------- confirm (measure 1)
+function confirmScreen(pid, res){
+  const conf = Math.round((res.confidence||0)*100);
+  screen.innerHTML = `
+    <p class="eyebrow">${esc(res.node_display||'')} · understood ${conf}%</p>
+    <h1 class="hero" style="font-size:23px">Here's what we caught</h1>
+    <p class="lede">Pulled straight from your description — you can change any of it later. We'll only ask about what's still open.</p>
+    <div class="known"><div class="h">From your description</div>
+      ${res.extracted.map(e=>`<div class="row"><span>${esc(e.label)}</span><span class="v">${esc(e.value)}</span></div>`).join('')}</div>
+    <div class="measurebar"><span class="m done">1 · Understood</span><span class="m">2 · Audit</span><span class="m">3 · Gates</span></div>
+    <button class="btn go" id="cont">Looks right — continue</button>
+    <button class="btn alt" id="edit">Start over</button>`;
+  $('#cont').onclick=()=>openProject(pid);
+  $('#edit').onclick=()=>{ stack=[landing,newBuild]; render(); };
 }
 
 // ---------------------------------------------------------------- library
@@ -156,7 +176,7 @@ function configureScreen(pid, st){
       body = `<div class="chips">${q.numeric_presets.map(v=>`<button class="chip" data-f="${q.field}" data-v="${v}">${v}${q.unit==='in'?'"':''}</button>`).join('')}
         <div class="custom"><input type="number" placeholder="custom" data-cf="${q.field}"> <span class="muted" style="align-self:center">${esc(q.unit)}</span></div></div>`;
     }
-    return `<div class="card q"><p class="prompt">${esc(q.prompt)} ${q.required?'':'<span class="muted">(optional)</span>'}</p>
+    return `<div class="card q"><p class="prompt">${esc(q.prompt)} ${q.required?'':'<span class="muted">(optional)</span>'}${q.tailored?'<span class="tailored">✨ tailored</span>':''}</p>
       ${body}${q.explain?`<button class="linkish" data-x="${q.id}">Not sure?</button><div class="explain hidden" id="x-${q.id}">${esc(q.explain)}</div>`:''}</div>`;
   }).join('');
 
@@ -191,15 +211,26 @@ function configureScreen(pid, st){
 
 // ---------------------------------------------------------------- generate
 async function generate(pid){
-  const stepsList=['Solving geometry (pure)','Deriving parts & joinery','Nesting sheets','Drawing plans & sections','Paginating document','Running release gates'];
+  const stepsList=['Auditing completeness (2 judges)','Solving geometry (pure)','Deriving parts & joinery','Nesting sheets','Drawing plans & sections','Paginating document','Running release gates (measure 3)'];
   let i=0;
-  const draw=()=>{ screen.innerHTML=`<h1 class="hero" style="font-size:23px">Generating your package</h1>
+  const draw=()=>{ screen.innerHTML=`<h1 class="hero" style="font-size:23px">Measure thrice, cut once</h1>
+    <p class="lede">Auditing before we commit the spec.</p>
     <div class="spinner"></div>
     <ul class="steps">${stepsList.map((s,k)=>`<li class="${k<i?'done':k===i?'active':''}">${esc(s)}</li>`).join('')}</ul>`; };
   draw();
-  const tick=setInterval(()=>{ if(i<stepsList.length-1){i++;draw();} },600);
+  const tick=setInterval(()=>{ if(i<stepsList.length-1){i++;draw();} },550);
   const res = await api('/api/projects/'+pid+'/generate','POST',{});
-  clearInterval(tick); i=stepsList.length;
+  clearInterval(tick);
+  if(res.released===false){
+    // completeness audit loop-back — return to questioning with specifics
+    const st = await api('/api/projects/'+pid);
+    stack[stack.length-1]=()=>{ configureScreen(pid, st);
+      const b=document.createElement('div'); b.className='notice';
+      b.textContent='⤺ '+(res.message||'A few more answers needed')+(res.missing&&res.missing.length?': '+res.missing.join(', '):'');
+      screen.prepend(b); };
+    return render();
+  }
+  i=stepsList.length;
   const st = await api('/api/projects/'+pid);
   stack[stack.length-1]=()=>resultScreen(pid, st, res); render();
 }
@@ -238,6 +269,17 @@ function resultScreen(pid, st, res){
     if(view==='result') stack=[()=>resultScreen(pid,st)];
     else if(view==='photos') stack=[()=>photosScreen(pid,st)];
     else if(view==='configure') stack=[()=>configureScreen(pid,st)];
+    else if(view==='confirm'){
+      const res={node_display:st.node_display, confidence:1.0,
+        extracted:(st.known||[]).map(k=>({label:k.label,value:k.value}))};
+      stack=[()=>confirmScreen(pid,res)];
+    }
+    else if(view==='measures'){
+      const steps=['Auditing completeness (2 judges)','Solving geometry (pure)','Deriving parts & joinery','Nesting sheets','Drawing plans & sections','Paginating document','Running release gates (measure 3)'];
+      stack=[()=>{ screen.innerHTML=`<h1 class="hero" style="font-size:23px">Measure thrice, cut once</h1>
+        <p class="lede">Auditing before we commit the spec.</p><div class="spinner"></div>
+        <ul class="steps">${steps.map((s,k)=>`<li class="${k<4?'done':k===4?'active':''}">${s}</li>`).join('')}</ul>`; }];
+    }
     else stack=[()=> (st.document?resultScreen(pid,st): st.status==='photos'?photosScreen(pid,st):configureScreen(pid,st))];
     return render();
   }

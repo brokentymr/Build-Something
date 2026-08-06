@@ -15,7 +15,7 @@ import urllib.request
 
 from build_assistant.elicitation.llm import LLMBoundary, DeterministicStubClient
 
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
 
 
 class AnthropicClient:

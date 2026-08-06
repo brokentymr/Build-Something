@@ -18,7 +18,7 @@ DB_PATH = os.environ.get("BUILD_ASSISTANT_DB", os.path.join("out", "build_assist
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY, node TEXT, title TEXT, status TEXT,
-  revision TEXT DEFAULT 'A', created REAL, updated REAL
+  revision TEXT DEFAULT 'A', description TEXT DEFAULT '', created REAL, updated REAL
 );
 CREATE TABLE IF NOT EXISTS answer_versions (
   project_id TEXT, version INTEGER, answers_json TEXT, note TEXT, created REAL,
@@ -70,6 +70,15 @@ class Store:
 
     def set_status(self, pid: str, status: str) -> None:
         self._touch(pid, status=status)
+
+    def set_description(self, pid: str, description: str) -> None:
+        self._c.execute("UPDATE projects SET description=?, updated=? WHERE id=?",
+                        (description, _now(), pid))
+        self._c.commit()
+
+    def get_description(self, pid: str) -> str:
+        row = self._c.execute("SELECT description FROM projects WHERE id=?", (pid,)).fetchone()
+        return (row["description"] if row else "") or ""
 
     def set_revision(self, pid: str, letter: str) -> None:
         self._c.execute("UPDATE projects SET revision=?, updated=? WHERE id=?",

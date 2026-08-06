@@ -24,7 +24,7 @@ from build_assistant.catalog.finishes import all_finishes
 from build_assistant.build_mode.runner import structural_notice
 from .db import Store
 from .ai import get_boundary
-from build_assistant.elicitation.intake import classify
+from .agent import BuildAgent
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
@@ -32,6 +32,7 @@ STATIC = os.path.join(HERE, "static")
 REG = default_registry()
 STORE = Store()
 BOUNDARY, AI_MODE = get_boundary(REG)
+AGENT = BuildAgent(BOUNDARY, REG)
 
 
 # --------------------------------------------------------------------------
@@ -61,7 +62,18 @@ def project_state(pid: str) -> dict:
         state["progress"] = {"answered": len(answered_req), "total": len(req)}
         state["can_generate"] = graph.is_complete(answers)
         turn = graph.next_turn(answers)
-        state["turn"] = _turn_json(turn) if turn else None
+        if turn:
+            tj = _turn_json(turn)
+            # tailor each question's wording to the user's description (phrasing only)
+            desc = STORE.get_description(pid)
+            tailored = AGENT.tailor(node, desc, turn.questions) if desc else {}
+            for q in tj["questions"]:
+                if q["id"] in tailored:
+                    q["prompt"] = tailored[q["id"]]
+                    q["tailored"] = True
+            state["turn"] = tj
+        else:
+            state["turn"] = None
         # restate what is already known (Phase 9 resume behaviour)
         state["known"] = _known_summary(node, answers)
         doc = STORE.latest_document(pid)
@@ -108,36 +120,34 @@ def _known_summary(node: str, answers: dict) -> list[dict]:
 # --------------------------------------------------------------------------
 
 def do_intake(pid: str, text: str) -> dict:
-    res = classify(text, BOUNDARY, REG)
-    if res.review_queue:
-        return {"outcome": "unknown", "message": "We don't have a template for that yet — "
-                "it's been sent to our review queue. Try one of the known types.",
-                "known": REG.all_leaves()}
-    if res.needs_disambiguation():
-        options = []
-        seen = set()
-        for a in res.ambiguities:
-            for c in a["constructions"]:
-                key = c["construction"]
-                if key not in seen:
+    """Measure 1: decompose the description, prefill what was stated, and route."""
+    STORE.set_description(pid, text)
+    report = AGENT.intake(text)
+    # ambiguity must be resolved before we proceed — never silently pick (7.4)
+    if report.ambiguities:
+        options, seen = [], set()
+        for a in report.ambiguities:
+            for c in a.get("constructions", []):
+                key = c.get("construction")
+                if key and key not in seen:
                     seen.add(key)
-                    options.append({"term": a["term"], "value": key, "note": c["note"]})
-        cands = [c for c in res.candidates if c["confidence"] >= 0.4]
-        for c in cands:
-            options.append({"value": c["node"], "note": REG.schema(c["node"])["display_name"]
-                            if REG.is_leaf(c["node"]) else c["node"]})
-        return {"outcome": "disambiguate", "message":
-                "That maps to more than one thing — which did you mean?", "options": options}
-    node = res.resolved_node()
-    if node:
-        STORE.set_node(pid, node)
-        return {"outcome": "resolved", "node": node}
-    # single candidate fallback
-    if res.candidates and res.candidates[0]["node"] in REG.all_leaves():
-        node = res.candidates[0]["node"]
-        STORE.set_node(pid, node)
-        return {"outcome": "resolved", "node": node}
-    return {"outcome": "unknown", "message": "Tell us a bit more.", "known": REG.all_leaves()}
+                    options.append({"term": a.get("term"), "value": key, "note": c.get("note", "")})
+        if report.node:
+            options.append({"value": report.node, "note": REG.schema(report.node)["display_name"]})
+        if options:
+            return {"outcome": "disambiguate", "message":
+                    "That maps to more than one thing — which did you mean?", "options": options}
+    if report.node and report.node in REG.all_leaves():
+        STORE.set_node(pid, report.node)                      # -> photos stage
+        if report.extracted:
+            STORE.add_answers(pid, report.extracted, "prefilled from description")
+        return {"outcome": "resolved", "node": report.node,
+                "node_display": REG.schema(report.node)["display_name"],
+                "extracted": report.extracted_display, "notes": report.audit_notes,
+                "confidence": report.confidence}
+    return {"outcome": "unknown",
+            "message": "We don't have a template for that yet — try one of these, and it's "
+                       "queued for review.", "known": REG.all_leaves()}
 
 
 def do_generate(pid: str) -> dict:
@@ -145,6 +155,12 @@ def do_generate(pid: str) -> dict:
     from build_assistant.gates.gates import run_all_gates, all_passed
     answers = STORE.answers(pid)
     node = answers.get("node")
+    # Measure 2: completeness audit (two judges) before we solve/cut.
+    approved, audit = AGENT.audit_ready(node, {k: v for k, v in answers.items() if k != "node"})
+    if not approved:
+        missing = sorted({m for v in audit for m in v["missing"]})
+        return {"released": False, "audit": audit, "missing": missing,
+                "message": "Completeness audit found gaps — a few more answers needed."}
     STORE.set_status(pid, "generating")
     geo = solve(answers)
     plan = plan_nesting(geo)
@@ -163,7 +179,7 @@ def do_generate(pid: str) -> dict:
     STORE.save_document(pid, STORE.version_count(pid), doc["page_count"],
                         gates_json, doc["html_path"], pdf_path, summary)
     STORE.set_status(pid, "released")
-    return {"released": True, "gates": gates_json, "summary": summary,
+    return {"released": True, "gates": gates_json, "summary": summary, "audit": audit,
             "pdf_url": f"/api/projects/{pid}/document.pdf", "pages": doc["page_count"]}
 
 

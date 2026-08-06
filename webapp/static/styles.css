@@ -117,4 +117,10 @@ textarea.free{width:100%;min-height:110px;border:1.5px solid var(--line);border-
 .coverwrap img{width:100%;display:block}
 .notice{background:#fbf1e8;border:1px solid #ecd8c6;border-radius:12px;padding:12px 14px;font-size:13px;
   color:#8a5a3c;margin-bottom:14px}
+.measurebar{display:flex;gap:8px;margin:16px 0}
+.measurebar .m{flex:1;text-align:center;font-size:11px;font-weight:700;padding:8px 4px;border-radius:10px;
+  background:var(--chip);color:var(--muted);border:1px solid var(--line)}
+.measurebar .m.done{background:#e2efe7;color:var(--ok);border-color:#cfe4d7}
+.tailored{font-size:10px;font-weight:700;color:var(--accent2);background:#f9ece6;margin-left:6px;
+  padding:2px 7px;border-radius:20px;white-space:nowrap}
 .muted{color:var(--muted);font-size:13px}
