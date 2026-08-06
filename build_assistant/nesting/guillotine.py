@@ -99,7 +99,11 @@ def _fits(rw: float, rh: float, fr: FreeRect) -> bool:
 
 def _place_in(sheet: SheetLayout, part_id: str, w: float, h: float,
               allow_rotate: bool) -> bool:
-    """Try to place a w x h part (kerf already included) into the sheet."""
+    """Try to place a raw w x h part into the sheet.
+
+    Kerf is consumed on the *cut line* between the placed part and the free space
+    it leaves, not added to the part itself — so a part exactly the sheet width
+    still fits (the outer edges of the sheet are not saw cuts)."""
     best = None  # (score, idx, rw, rh, rotated)
     for idx, fr in enumerate(sheet.free_rects):
         for rw, rh, rot in ((w, h, False), (h, w, True)):
@@ -107,17 +111,16 @@ def _place_in(sheet: SheetLayout, part_id: str, w: float, h: float,
                 continue
             if _fits(rw, rh, fr):
                 short_leftover = min(fr.w - rw, fr.h - rh)
-                score = short_leftover
-                if best is None or score < best[0]:
-                    best = (score, idx, rw, rh, rot)
+                if best is None or short_leftover < best[0]:
+                    best = (short_leftover, idx, rw, rh, rot)
     if best is None:
         return False
     _, idx, rw, rh, rot = best
     fr = sheet.free_rects.pop(idx)
-    sheet.placements.append(Placement(part_id, fr.x, fr.y, rw - KERF, rh - KERF, rot))
-    # Guillotine split: split remaining L-shape along the longer leftover axis.
-    right = FreeRect(fr.x + rw, fr.y, fr.w - rw, rh)
-    top = FreeRect(fr.x, fr.y + rh, fr.w, fr.h - rh)
+    sheet.placements.append(Placement(part_id, fr.x, fr.y, rw, rh, rot))
+    # Guillotine split; the saw eats KERF on each new cut line.
+    right = FreeRect(fr.x + rw + KERF, fr.y, fr.w - rw - KERF, rh)
+    top = FreeRect(fr.x, fr.y + rh + KERF, fr.w, fr.h - rh - KERF)
     for nr in (right, top):
         if nr.w > 1e-6 and nr.h > 1e-6:
             sheet.free_rects.append(nr)
@@ -141,15 +144,14 @@ def nest(material_id: str, sheet_w: float, sheet_h: float,
         return s
 
     for pid, pw, ph in order:
-        w, h = pw + KERF, ph + KERF
         placed = False
         for s in sheets:
-            if _place_in(s, pid, w, h, allow_rotate):
+            if _place_in(s, pid, pw, ph, allow_rotate):
                 placed = True
                 break
         if not placed:
             s = new_sheet()
-            if not _place_in(s, pid, w, h, allow_rotate):
+            if not _place_in(s, pid, pw, ph, allow_rotate):
                 raise ValueError(
                     f"part {pid} ({pw}x{ph}) does not fit a {sheet_w}x{sheet_h} "
                     f"sheet of {material_id} even empty"

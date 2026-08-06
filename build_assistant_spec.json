@@ -1,0 +1,108 @@
+{
+  "$comment": "Normative data contracts for the Build Assistant. The BUILD BRIEF is the instruction; this file is the schema. It pins the catalog shapes, the five laws, the stage-versioned dimension contract, the reference fixture with expected solve output, and the release-gate definitions so any implementation can be checked against them.",
+  "version": "1.0.0",
+  "laws": {
+    "1": "AI never emits a number. Every number reaching a user traces to a solver field id.",
+    "2": "solve(answer_set, catalog, schema) is a pure function: same inputs -> same output -> same hash. No I/O, randomness or model calls.",
+    "3": "Answer sets are append-only. Revisions create new versions; nothing is mutated.",
+    "4": "Partial re-solve does not exist. Any input change regenerates everything downstream.",
+    "5": "No document releases with a failing gate. There is no override flag."
+  },
+  "dimension_contract": {
+    "$comment": "Section 2.3 — every dimension is a triple, never a scalar. A dimension in a step without a stage tag is a validation error.",
+    "fields": ["as_cut", "as_assembled", "as_finished"]
+  },
+  "material": {
+    "fields": ["id", "display_name", "category", "nominal_thickness", "actual_thickness",
+      "actual_tolerance", "stock_sizes", "grain_direction", "requires_backing", "notes"],
+    "grain_direction_enum": ["length", "none"],
+    "solver_consumes": "actual_thickness only"
+  },
+  "fastener": {
+    "fields": ["id", "display_name", "kind", "length", "pilot_diameter",
+      "countersink_diameter", "driver_bit", "substrate_ok", "substrate_forbidden", "notes"],
+    "rationale": "Tool schedule is derived from this; it must say '7/64 brad point', not 'a drill bit'."
+  },
+  "finish_system": {
+    "fields": ["id", "display_name", "layers", "per_face_offset", "direction",
+      "substrate_requirements", "incompatible_substrates"],
+    "direction_enum": ["additive_outward", "additive_inward", "subtractive"],
+    "per_face_offset": "sum of layer thicknesses"
+  },
+  "invariants": [
+    "Stacked element finished heights sum to declared overall height, accounting for co-planar overlaps",
+    "Reveals symmetric on all declared sides unless asymmetry was requested",
+    "Carcass offset equals finished reveal plus allowance of the inset element",
+    "Every part length greater than zero after allowance application",
+    "Unsupported span of any finish-bearing panel below its flex threshold",
+    "Continuous backing exists behind the full width of every finish-bearing surface",
+    "Every part fits at least one stock size in at least one orientation"
+  ],
+  "release_gates": {
+    "gate_1_number_provenance": "Every number in narrative prose matches a solver field id; an unmatched number blocks release.",
+    "gate_2_overflow": "For every page, scrollHeight - clientHeight <= 2px.",
+    "gate_3_visual": "Rasterize and inspect; catches drawing labels/shapes past a canvas edge that overflow no container.",
+    "all_required": true,
+    "override": false
+  },
+  "reference_fixture": {
+    "$comment": "Section 2.5 — the golden test. Solver must reproduce every value below from the seven inputs.",
+    "inputs": {
+      "node": "coffee_table",
+      "overall_length": 42,
+      "overall_width": 20,
+      "overall_height": 16,
+      "slab_edge_thickness": 3,
+      "base_type": "plinth",
+      "finish_system": "microcement_over_cement_board",
+      "plinth_inset": 3,
+      "assembly": "single_monolith"
+    },
+    "expected_solve": {
+      "skin.per_face_offset": 0.375,
+      "slab.carcass_thickness": 2.25,
+      "slab.deck.length": 41.25,
+      "slab.deck.width": 19.25,
+      "slab.core_ring_width": 3.0,
+      "slab.rib_count": 3,
+      "slab.rib_left_edges": [9.5625, 19.125, 28.6875],
+      "slab.bay_width": 6.5625,
+      "plinth.carcass_height.as_cut": 13.375,
+      "plinth.height.as_finished": 13.0,
+      "plinth.long_side.as_cut": [35.25, 13.375],
+      "plinth.end_panel.as_cut": [11.75, 13.375],
+      "plinth.platform.as_cut": [33.75, 11.75],
+      "plinth.inset.as_assembled": 3.375,
+      "plinth.inset.as_finished": 3.0,
+      "overall_height": 16.0,
+      "coated_area": "~18.9 sq ft",
+      "weight_estimate": "~120 lb"
+    },
+    "hard_assertions": [
+      "plinth.carcass_height.as_cut (13.375) != plinth.height.as_finished (13.0)",
+      "plinth.carcass_height + slab.finished_thickness (16.375) != overall_height (16.0) — co-planar overlap",
+      "plinth.inset.as_assembled (3.375) > plinth.inset.as_finished (3.0)"
+    ],
+    "expected_parts": {
+      "type_count": 8,
+      "piece_count": 15,
+      "parts": [
+        {"id": "A", "part": "slab top deck", "as_cut": [41.25, 19.25], "qty": 1},
+        {"id": "B", "part": "slab bottom deck", "as_cut": [41.25, 19.25], "qty": 1},
+        {"id": "C", "part": "core rail, long", "as_cut": [41.25, 3], "qty": 2},
+        {"id": "D", "part": "core rail, end", "as_cut": [13.25, 3], "qty": 2},
+        {"id": "E", "part": "core rib", "as_cut": [13.25, 3], "qty": 3},
+        {"id": "F", "part": "plinth long side", "as_cut": [35.25, 13.375], "qty": 2},
+        {"id": "G", "part": "plinth end panel", "as_cut": [11.75, 13.375], "qty": 2},
+        {"id": "H", "part": "plinth platform", "as_cut": [33.75, 11.75], "qty": 2}
+      ]
+    },
+    "expected_nesting": {
+      "plywood": {"stock": [48, 96], "sheets": 1, "utilisation": 0.886, "cut_order_constraint": true},
+      "cement_board": {"stock": [36, 60], "sheets": 2, "claimable_offcut_min": [9, 18]}
+    }
+  },
+  "material_note": {
+    "$comment": "The brief prose seeds '3/4 birch plywood (actual 0.703)', but the reference fixture's numbers are computed at actual 0.75 (slab.carcass_thickness 2.25 = 3 * 0.75; plywood util 4084.75/4608 = 0.886). The golden test governs, so the coffee_table build path uses a 3/4 structural panel of actual 0.75; the 0.703 birch entry is retained for other paths."
+  }
+}

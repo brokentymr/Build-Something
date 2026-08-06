@@ -89,10 +89,11 @@ def solve_hash(geo: Geometry) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
-# Register bundled nodes on import.
+# Register bundled nodes on import — from the data manifest, not per-node code.
 def _bootstrap() -> None:
-    from ..nodes import coffee_table
-    register_node(coffee_table)
+    from ..nodes import ALL_NODES
+    for module in ALL_NODES:
+        register_node(module)
 
 
 _bootstrap()
