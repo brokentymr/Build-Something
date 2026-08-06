@@ -1,0 +1,212 @@
+"""Drafting primitive library — Phase 4, brief section 5.1.
+
+Parametric SVG. Never illustrative, never model-generated.
+
+Three hard rules, enforced structurally here:
+
+* **Every dimension label is passed explicitly** (Lesson 7). There is no default
+  that derives a label from canvas coordinates — ``label`` is a required
+  positional argument, and passing ``None`` raises. A garbage default once printed
+  ``352-13/16"`` where ``42"`` was meant, by formatting pixels as inches.
+* **Text extents are bounds-checked against the viewBox** (Lesson 9 / Gate 3).
+  :class:`Canvas` records every text run's estimated bounding box; overflow is
+  detectable even though it overflows no container.
+* Decimal-to-fraction formatting is a shared helper (never re-implemented).
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+from fractions import Fraction
+
+TICK = 6.0                 # architectural tick length (px)
+EXT = 4.0                  # extension-line gap
+FONT = 11.0                # default label font size
+CHAR_W = 0.6               # rough glyph width factor for extent estimation
+
+
+class LabelError(ValueError):
+    """A dimension/label helper was called without an explicit label."""
+
+
+def fmt_inches(value: float, denom: int = 64) -> str:
+    """Decimal inches -> architectural fraction string, e.g. 41.25 -> 41-1/4\"."""
+    neg = value < 0
+    value = abs(value)
+    whole = int(value)
+    frac = Fraction(value - whole).limit_denominator(denom)
+    sign = "-" if neg else ""
+    if frac == 0:
+        return f'{sign}{whole}"'
+    if whole == 0:
+        return f'{sign}{frac.numerator}/{frac.denominator}"'
+    return f'{sign}{whole}-{frac.numerator}/{frac.denominator}"'
+
+
+@dataclass
+class TextBox:
+    x: float
+    y: float
+    w: float
+    h: float
+    text: str
+
+
+@dataclass
+class Canvas:
+    """An SVG canvas that tracks text extents for bounds-checking (Gate 3)."""
+
+    w: float
+    h: float
+    pad: float = 24.0
+    _els: list[str] = field(default_factory=list)
+    _texts: list[TextBox] = field(default_factory=list)
+    title: str = ""
+    stage: str = ""            # every drawing declares its stage (section 5.1)
+
+    # ---- raw geometry ----
+    def line(self, x1, y1, x2, y2, w=1.0, dash="", color="#222"):
+        d = f' stroke-dasharray="{dash}"' if dash else ""
+        self._els.append(
+            f'<line x1="{x1:.2f}" y1="{y1:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" '
+            f'stroke="{color}" stroke-width="{w}"{d}/>'
+        )
+
+    def rect(self, x, y, w, h, fill="none", stroke="#222", sw=1.0, dash=""):
+        d = f' stroke-dasharray="{dash}"' if dash else ""
+        self._els.append(
+            f'<rect x="{x:.2f}" y="{y:.2f}" width="{w:.2f}" height="{h:.2f}" '
+            f'fill="{fill}" stroke="{stroke}" stroke-width="{sw}"{d}/>'
+        )
+
+    def polygon(self, pts, fill="none", stroke="#222", sw=1.0):
+        p = " ".join(f"{x:.2f},{y:.2f}" for x, y in pts)
+        self._els.append(f'<polygon points="{p}" fill="{fill}" stroke="{stroke}" stroke-width="{sw}"/>')
+
+    def text(self, x, y, s, size=FONT, anchor="middle", color="#111", weight="normal"):
+        if s is None:
+            raise LabelError("text() requires an explicit string (Lesson 7)")
+        w = len(s) * size * CHAR_W
+        if anchor == "middle":
+            bx = x - w / 2
+        elif anchor == "end":
+            bx = x - w
+        else:
+            bx = x
+        self._texts.append(TextBox(bx, y - size, w, size * 1.2, s))
+        self._els.append(
+            f'<text x="{x:.2f}" y="{y:.2f}" font-size="{size}" text-anchor="{anchor}" '
+            f'font-family="Helvetica,Arial,sans-serif" fill="{color}" '
+            f'font-weight="{weight}">{_esc(s)}</text>'
+        )
+
+    # ---- drafting primitives ----
+    def dim_horizontal(self, x1: float, x2: float, y: float, label: str, above=True):
+        """Horizontal dimension line with architectural ticks + extension lines.
+
+        ``label`` is REQUIRED and explicit — there is deliberately no default that
+        measures ``x2 - x1`` (Lesson 7)."""
+        if label is None:
+            raise LabelError("dim_horizontal requires an explicit label (Lesson 7)")
+        self.line(x1, y, x2, y, 0.8)
+        self._tick(x1, y)
+        self._tick(x2, y)
+        ty = y - 5 if above else y + FONT + 2
+        self.text((x1 + x2) / 2, ty, label, size=FONT)
+
+    def dim_vertical(self, y1: float, y2: float, x: float, label: str, left=True):
+        if label is None:
+            raise LabelError("dim_vertical requires an explicit label (Lesson 7)")
+        self.line(x, y1, x, y2, 0.8)
+        self._tick(x, y1, vertical=True)
+        self._tick(x, y2, vertical=True)
+        tx = x - 5 if left else x + 5
+        anchor = "end" if left else "start"
+        self.text(tx, (y1 + y2) / 2, label, size=FONT, anchor=anchor)
+
+    def leader(self, x: float, y: float, tx: float, ty: float, label: str):
+        """A leader line with an anchored label. ``label`` is required."""
+        if label is None:
+            raise LabelError("leader requires an explicit label (Lesson 7)")
+        self.line(x, y, tx, ty, 0.7)
+        anchor = "start" if tx >= x else "end"
+        self.text(tx + (3 if tx >= x else -3), ty, label, size=FONT - 1, anchor=anchor)
+
+    def section_hatch(self, x, y, w, h, spacing=6.0):
+        """45-degree section hatching clipped to a rectangle."""
+        n = int((w + h) / spacing)
+        for i in range(-int(h / spacing), n + 1):
+            x0 = x + i * spacing
+            self.line(max(x, x0), max(y, y + (x - x0)),
+                      min(x + w, x0 + h), min(y + h, y + h - ((x0 + h) - (x + w)) if False else y + h),
+                      0.4, color="#999")
+
+    def ground_hatch(self, x, y, w, n=8):
+        """Ground/hatch symbol along a baseline."""
+        step = w / n
+        for i in range(n):
+            gx = x + i * step
+            self.line(gx, y, gx - 5, y + 6, 0.5, color="#777")
+        self.line(x, y, x + w, y, 0.8)
+
+    def iso_box(self, ox, oy, L, Wd, H, scale=1.0, label=None):
+        """Simple isometric box projection (30-degree)."""
+        a = math.radians(30)
+        dx, dy = math.cos(a) * scale, math.sin(a) * scale
+        L *= scale; Wd *= scale; H *= scale
+        # front-bottom-left origin (ox, oy)
+        p = {
+            "A": (ox, oy),
+            "B": (ox + L, oy),
+            "C": (ox + L + Wd * dx, oy - Wd * dy),
+            "D": (ox + Wd * dx, oy - Wd * dy),
+        }
+        top = {k: (x, y - H) for k, (x, y) in p.items()}
+        self.polygon([p["A"], p["B"], top["B"], top["A"]], fill="#f4f1ec")   # front
+        self.polygon([p["B"], p["C"], top["C"], top["B"]], fill="#e9e4da")   # side
+        self.polygon([top["A"], top["B"], top["C"], top["D"]], fill="#fbfaf7")  # top
+        if label is not None:
+            self.text(ox + L / 2, oy + FONT, label, size=FONT)
+
+    def _tick(self, x, y, vertical=False):
+        if vertical:
+            self.line(x - TICK / 2, y - TICK / 2, x + TICK / 2, y + TICK / 2, 1.2)
+        else:
+            self.line(x - TICK / 2, y - TICK / 2, x + TICK / 2, y + TICK / 2, 1.2)
+
+    # ---- bounds checking (Gate 3 support) ----
+    def overflowing_labels(self) -> list[TextBox]:
+        """Text runs whose estimated box exceeds the viewBox (Lesson 9)."""
+        bad = []
+        for tb in self._texts:
+            if (tb.x < 0 or tb.y < 0 or tb.x + tb.w > self.w + 0.5
+                    or tb.y + tb.h > self.h + 0.5):
+                bad.append(tb)
+        return bad
+
+    def render(self) -> str:
+        stage_badge = ""
+        if self.stage:
+            stage_badge = (
+                f'<rect x="{self.w - 150}" y="6" width="144" height="18" '
+                f'fill="#111" rx="3"/>'
+                f'<text x="{self.w - 78}" y="19" font-size="10" text-anchor="middle" '
+                f'font-family="Helvetica,Arial" fill="#fff">STAGE: {_esc(self.stage.upper())}</text>'
+            )
+        title = ""
+        if self.title:
+            title = (f'<text x="10" y="18" font-size="12" font-weight="bold" '
+                     f'font-family="Helvetica,Arial" fill="#111">{_esc(self.title)}</text>')
+        body = "\n".join(self._els)
+        return (
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.w} {self.h}" '
+            f'width="100%" preserveAspectRatio="xMidYMid meet">'
+            f'<rect x="0" y="0" width="{self.w}" height="{self.h}" fill="#fff"/>'
+            f'{title}{stage_badge}{body}</svg>'
+        )
+
+
+def _esc(s: str) -> str:
+    return (s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace('"', "&quot;"))
