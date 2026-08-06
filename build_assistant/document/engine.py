@@ -186,13 +186,14 @@ def _render_pages(pages: list[list[Block]]) -> str:
     return "\n".join(out)
 
 
-def build_document(geo: Geometry, plan: NestingPlan) -> dict:
+def build_document(geo: Geometry, plan: NestingPlan, out_name: str = "coffee_table") -> dict:
     """Full two-pass build. Returns paths and pagination metadata."""
     blocks = build_blocks(geo, plan)
     heights = _measure(blocks)                       # pass 1
     pages = _paginate(blocks, heights)               # pass 2
     html = _render_pages(pages)                       # totals resolved here
-    html_path = os.path.join("out", "coffee_table.html")
+    os.makedirs("out", exist_ok=True)
+    html_path = os.path.join("out", f"{out_name}.html")
     with open(html_path, "w") as fh:
         fh.write(html)
     return {"html_path": html_path, "html": html, "pages": pages,
@@ -203,6 +204,14 @@ def render_pdf(html_path: str, pdf_path: str) -> str:
     _run_chrome([f"--print-to-pdf={pdf_path}", "--no-pdf-header-footer",
                  f"file://{os.path.abspath(html_path)}"])
     return pdf_path
+
+
+def render_cover(html_path: str, png_path: str) -> str:
+    """Rasterize just the first page (a reliable, mobile-friendly preview image)."""
+    _run_chrome([f"--screenshot={png_path}", f"--window-size={PAGE_W},{PAGE_H}",
+                 "--force-device-scale-factor=2",
+                 f"file://{os.path.abspath(html_path)}"])
+    return png_path
 
 
 def render_page_pngs(html_path: str, out_dir: str, page_count: int) -> list[str]:

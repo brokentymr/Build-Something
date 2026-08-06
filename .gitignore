@@ -4,3 +4,5 @@ out/*.pdf
 out/*.png
 out/*.html
 .DS_Store
+out/*.db
+webapp/__pycache__/
