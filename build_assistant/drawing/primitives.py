@@ -64,10 +64,18 @@ class Canvas:
     _texts: list[TextBox] = field(default_factory=list)
     title: str = ""
     stage: str = ""            # every drawing declares its stage (section 5.1)
+    _ext: list[float] = field(default_factory=lambda: [1e9, 1e9, -1e9, -1e9])  # minx,miny,maxx,maxy
+
+    def _grow(self, x, y):
+        self._ext[0] = min(self._ext[0], x)
+        self._ext[1] = min(self._ext[1], y)
+        self._ext[2] = max(self._ext[2], x)
+        self._ext[3] = max(self._ext[3], y)
 
     # ---- raw geometry ----
     def line(self, x1, y1, x2, y2, w=1.0, dash="", color="#222"):
         d = f' stroke-dasharray="{dash}"' if dash else ""
+        self._grow(x1, y1); self._grow(x2, y2)
         self._els.append(
             f'<line x1="{x1:.2f}" y1="{y1:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" '
             f'stroke="{color}" stroke-width="{w}"{d}/>'
@@ -75,12 +83,15 @@ class Canvas:
 
     def rect(self, x, y, w, h, fill="none", stroke="#222", sw=1.0, dash=""):
         d = f' stroke-dasharray="{dash}"' if dash else ""
+        self._grow(x, y); self._grow(x + w, y + h)
         self._els.append(
             f'<rect x="{x:.2f}" y="{y:.2f}" width="{w:.2f}" height="{h:.2f}" '
             f'fill="{fill}" stroke="{stroke}" stroke-width="{sw}"{d}/>'
         )
 
     def polygon(self, pts, fill="none", stroke="#222", sw=1.0):
+        for x, y in pts:
+            self._grow(x, y)
         p = " ".join(f"{x:.2f},{y:.2f}" for x, y in pts)
         self._els.append(f'<polygon points="{p}" fill="{fill}" stroke="{stroke}" stroke-width="{sw}"/>')
 
@@ -133,14 +144,23 @@ class Canvas:
         anchor = "start" if tx >= x else "end"
         self.text(tx + (3 if tx >= x else -3), ty, label, size=FONT - 1, anchor=anchor)
 
-    def section_hatch(self, x, y, w, h, spacing=6.0):
-        """45-degree section hatching clipped to a rectangle."""
-        n = int((w + h) / spacing)
-        for i in range(-int(h / spacing), n + 1):
-            x0 = x + i * spacing
-            self.line(max(x, x0), max(y, y + (x - x0)),
-                      min(x + w, x0 + h), min(y + h, y + h - ((x0 + h) - (x + w)) if False else y + h),
-                      0.4, color="#999")
+    def section_hatch(self, x, y, w, h, spacing=7.0):
+        """45-degree section hatching, parallel lines clipped to a rectangle."""
+        k = -h
+        while k <= w:
+            pts = []
+            for lx, ly, ok in (
+                (k, 0.0, 0 <= k <= w),            # bottom edge
+                (k + h, h, 0 <= k + h <= w),      # top edge
+                (0.0, -k, 0 <= -k <= h),          # left edge
+                (w, w - k, 0 <= w - k <= h),      # right edge
+            ):
+                if ok:
+                    pts.append((lx, ly))
+            if len(pts) >= 2:
+                (x1, y1), (x2, y2) = pts[0], pts[1]
+                self.line(x + x1, y + y1, x + x2, y + y2, 0.4, color="#b0a99a")
+            k += spacing
 
     def ground_hatch(self, x, y, w, n=8):
         """Ground/hatch symbol along a baseline."""
@@ -151,9 +171,12 @@ class Canvas:
         self.line(x, y, x + w, y, 0.8)
 
     def iso_box(self, ox, oy, L, Wd, H, scale=1.0, label=None):
-        """Simple isometric box projection (30-degree)."""
+        """Simple isometric box projection (30-degree).
+
+        ``dx``/``dy`` are unit iso offsets; ``L``/``Wd``/``H`` carry the scale, so
+        the depth offset is not scaled twice."""
         a = math.radians(30)
-        dx, dy = math.cos(a) * scale, math.sin(a) * scale
+        dx, dy = math.cos(a), math.sin(a)
         L *= scale; Wd *= scale; H *= scale
         # front-bottom-left origin (ox, oy)
         p = {
@@ -184,6 +207,16 @@ class Canvas:
                     or tb.y + tb.h > self.h + 0.5):
                 bad.append(tb)
         return bad
+
+    def geometry_overflow(self, tol: float = 0.5) -> tuple | None:
+        """Drawn geometry extents exceeding the viewBox (e.g. a drawing running
+        off its canvas edge — the side-elevation-cut-off class Gate 2 misses)."""
+        minx, miny, maxx, maxy = self._ext
+        if maxx < minx:
+            return None
+        if minx < -tol or miny < -tol or maxx > self.w + tol or maxy > self.h + tol:
+            return (round(minx, 1), round(miny, 1), round(maxx, 1), round(maxy, 1))
+        return None
 
     def render(self) -> str:
         stage_badge = ""
