@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from ..catalog.materials import get_material
 from ..core.model import Geometry
+from ..core.glueup import glue_up
 from .guillotine import nest, NestResult
 
 
@@ -37,8 +38,11 @@ def plan_nesting(geo: Geometry) -> NestingPlan:
     # --- carcass parts, grouped by material ---
     by_mat: dict[str, list[tuple[str, float, float]]] = {}
     for p in geo.parts:
-        L, W = p.cut_wh()
-        for i in range(p.qty):
+        # An edge-glued panel is bought and cut as strips — nesting the finished
+        # panel would ask for a board no mill sells.
+        gl = glue_up(p)
+        L, W = (gl.strip_length, gl.strip_width) if gl.is_glued else p.cut_wh()
+        for i in range(p.qty * gl.count):
             by_mat.setdefault(p.material_id, []).append((f"{p.id}{i+1}", L, W))
     for mid, pieces in by_mat.items():
         mat = get_material(mid)

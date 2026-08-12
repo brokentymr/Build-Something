@@ -232,21 +232,38 @@ def test_loop_never_ends_worse_than_the_best_round_it_found():
     print("  [ok] the loop keeps the best model it found, not the last one")
 
 
-def test_unfittable_solid_panel_is_told_what_to_do():
-    """A live run spent six rounds trimming a 50in x 12in solid side an inch at a
-    time. Solid panels that wide are edge-glued, which the engine does not model —
-    so the error has to name the route that exists."""
-    from build_assistant.core.invariants import check_invariants, InvariantError
+def test_wide_solid_panel_is_built_as_a_glue_up():
+    """A 12in solid side used to be unbuildable — the loop spent six rounds
+    trimming it an inch at a time. It is four strips jointed and glued."""
+    from build_assistant.core.invariants import check_invariants
+    from build_assistant.core.glueup import glue_up
     spec = {**_CASE, "materials": [{"role": "carcass", "material_id": "hardwood_4_4"},
                                    {"role": "back", "material_id": "ply_025"}]}
+    geo = compile_design(DesignIR.from_dict(spec), check=False)
+    check_invariants(geo)                       # no longer raises
+    side = next(p for p in geo.parts if p.id == "A")
+    gl = glue_up(side)
+    assert gl.is_glued and gl.count >= 2, gl
+    assert gl.strip_width <= 8.0 + 1e-6, "each strip must fit a real board"
+    assert "glue up from" in gl.describe()
+    print(f"  [ok] a 12in solid panel builds as {gl.count} glued strips")
+
+
+def test_a_part_longer_than_any_board_still_names_the_remedy():
+    """Width is solvable by gluing up; length is not."""
+    from build_assistant.core.invariants import check_invariants, InvariantError
+    spec = {**_CASE, "params": [{"id": "width", "label": "W", "value": 30},
+                                {"id": "height", "label": "H", "value": 130},
+                                {"id": "depth", "label": "D", "value": 12}],
+            "materials": [{"role": "carcass", "material_id": "hardwood_4_4"},
+                          {"role": "back", "material_id": "ply_025"}]}
     geo = compile_design(DesignIR.from_dict(spec), check=False)
     try:
         check_invariants(geo)
     except InvariantError as exc:
         msg = str(exc)
     else:
-        raise AssertionError("a 12in solid panel must not pass the stock check")
-    assert "edge-glued" in msg, msg
-    assert "sheet-good" in msg, "the message must name the route that works"
-    assert "8in" in msg, "the message must state the real board width"
-    print("  [ok] an unfittable solid panel names the remedy, not just the fault")
+        raise AssertionError("a 130in board must not pass the stock check")
+    assert "no glue-up makes a board longer" in msg, msg
+    assert "96in" in msg, "the message must state the real board length"
+    print("  [ok] a part longer than any board names the remedy")

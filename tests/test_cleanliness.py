@@ -123,3 +123,29 @@ def test_runhead_survives_a_missing_dimension_line():
     assert "case good" in doc["html"], "the kind must survive into the runhead whole"
     assert "case g<" not in doc["html"] and "case g " not in doc["html"]
     print("  [ok] the runhead keeps the whole kind, with or without dimensions")
+
+
+def test_cut_list_tells_the_shop_a_panel_is_glued_up():
+    """A 12in solid panel is one row in the cut list but four strips at the saw.
+    Quoting only the panel sends the builder looking for a board that wide."""
+    spec = {**_CASE, "materials": [{"role": "carcass", "material_id": "hardwood_4_4"},
+                                   {"role": "back", "material_id": "ply_025"}]}
+    geo = compile_design(DesignIR.from_dict(spec))
+    html = "".join(b.html for b in build_blocks_generic(geo, plan_nesting(geo), {}))
+    assert "glue up from" in html, "the cut list must call out the glue-up"
+    assert "trim to size" in html
+    print("  [ok] the cut list carries the glue-up and its strip width")
+
+
+def test_nesting_buys_strips_not_impossible_boards():
+    from build_assistant.core.glueup import glue_up
+    spec = {**_CASE, "materials": [{"role": "carcass", "material_id": "hardwood_4_4"},
+                                   {"role": "back", "material_id": "ply_025"}]}
+    geo = compile_design(DesignIR.from_dict(spec))
+    plan = plan_nesting(geo)
+    hardwood = plan.nests["hardwood_4_4"]
+    widths = [min(p.w, p.h) for s in hardwood.sheets for p in s.placements]
+    assert widths and max(widths) <= 8.0 + 1e-6, f"a piece wider than any board: {max(widths)}"
+    side = next(p for p in geo.parts if p.id == "A")
+    assert glue_up(side).count >= 2
+    print("  [ok] nesting places glue-up strips, all within real board widths")

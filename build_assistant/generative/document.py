@@ -215,11 +215,20 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
     B("h_cut", "header", _h("Cut list", "quoted as-cut · item nos. match the balloons"))
     items = gdraw.item_numbers(geo)
     # Quoted to 1/32 — the tolerance budget is +/- 1/32 and nobody can cut 61/64.
-    cut = [[str(items.get(p.id, "")), _e(p.name),
-            f'<span class="nowrap">{fmt_inches(p.cut_wh()[0], 32)} &times; '
-            f'{fmt_inches(p.cut_wh()[1], 32)}</span>',
-            str(p.qty), _e(get_material(p.material_id).display_name),
-            f'<span class="agent-note">{_e(_human(p.joint, geo))}</span>'] for p in geo.parts]
+    from ..core.glueup import glue_up
+    cut = []
+    for p in geo.parts:
+        gl = glue_up(p)
+        # An edge-glued panel is one row, but the shop cuts strips — say both, or
+        # the builder walks to the saw with a width no board can give.
+        note = _human(p.joint, geo)
+        if gl.is_glued:
+            note = f"{gl.describe()}, trim to size" + (f"; {note}" if note else "")
+        cut.append([str(items.get(p.id, "")), _e(p.name),
+                    f'<span class="nowrap">{fmt_inches(p.cut_wh()[0], 32)} &times; '
+                    f'{fmt_inches(p.cut_wh()[1], 32)}</span>',
+                    str(p.qty), _e(get_material(p.material_id).display_name),
+                    f'<span class="agent-note">{_e(note)}</span>'])
     B("cut", "table", _table(["Item", "Part", "As-cut", "Qty", "Material", "Joint"], cut))
 
     # ---------- SHEET LAYOUTS ----------

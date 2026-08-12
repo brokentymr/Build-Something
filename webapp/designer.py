@@ -241,6 +241,9 @@ Keep it genuinely buildable."""
         joinery = {pid: {"type": j.get("type"), "depth": _fmt(j.get("depth", 0.0))}
                    for pid, j in (geo.structure.get("joinery") or {}).items()}
         thick = {p.id: _fmt(p.thickness) for p in geo.parts}
+        from build_assistant.core.glueup import glue_up
+        glued = {p.id: {"strips": g.count, "strip_width": _fmt(g.strip_width)}
+                 for p in geo.parts for g in [glue_up(p)] if g.is_glued}
         system = ("You are a master maker writing the build instructions for a printed packet. "
                   "Be specific, ordered and safe. Reference the real parts by id and name. Do "
                   "not invent dimensions beyond the parts given; you may cite spacings, grits, "
@@ -252,7 +255,11 @@ Keep it genuinely buildable."""
             f"STOCK THICKNESS BY PART: {json.dumps(thick)}\n"
             f"DESIGN PARAMETERS: {json.dumps(params)}\n"
             f"JOINERY CUTS: {json.dumps(joinery)}\n"
-            "When you name a joinery depth, a panel thickness, a setback or any other design "
+            + (f"EDGE-GLUED PANELS: {json.dumps(glued)} — these parts are too wide for "
+               "one board and are glued up from strips. Include a glue-up phase before "
+               "joinery: joint the mating edges, glue and clamp flat, let it cure, then "
+               "trim the panel to size.\n" if glued else "")
+            + "When you name a joinery depth, a panel thickness, a setback or any other design "
             "parameter, quote the value given above EXACTLY. Do not restate it in different "
             "units or round it differently, and never substitute a number that seems typical.\n\n"
             "Write the packet content as JSON:\n"

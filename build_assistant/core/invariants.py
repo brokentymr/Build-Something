@@ -113,10 +113,14 @@ def _inv_continuous_backing(geo: Geometry) -> None:
 
 
 def _inv_parts_fit_stock(geo: Geometry) -> None:
-    """Every part fits at least one stock size in at least one orientation."""
+    """Every part fits stock — as one piece, or as the strips it is glued from."""
+    from .glueup import glue_up
     for p in geo.parts:
         mat = get_material(p.material_id)
-        L, W = p.cut_wh()
+        # A wide solid panel is checked as the strips the shop actually cuts, not
+        # as the finished panel, which no board is wide enough to yield.
+        gl = glue_up(p)
+        L, W = (gl.strip_length, gl.strip_width) if gl.is_glued else p.cut_wh()
         ok = any(
             (L <= s.w + TOL and W <= s.h + TOL) or (L <= s.h + TOL and W <= s.w + TOL)
             for s in mat.stock_sizes
@@ -138,14 +142,15 @@ def _stock_remedy(part, mat, L: float, W: float) -> str:
     widest = max((max(s.w, s.h) for s in mat.stock_sizes), default=0.0)
     board_width = max((min(s.w, s.h) for s in mat.stock_sizes), default=0.0)
     long_side, short_side = max(L, W), min(L, W)
-    if mat.category in ("lumber", "hardwood") and short_side > board_width:
+    if mat.category in ("lumber", "hardwood"):
+        # Width is solvable — a wide panel is edge-glued from strips, and the
+        # engine plans that itself. Length is not: no glue-up makes a board longer.
         return (
-            f"The widest {mat.display_name} board is {board_width:g}in "
-            f"(up to {widest:g}in long), and this part needs {short_side:g}in. A solid "
-            f"panel that wide is edge-glued from several boards, which this engine "
-            f"does not model. Either give this part a sheet-good material (plywood or "
-            f"MDF, which comes in 48x96 panels), or redesign it so no piece exceeds "
-            f"{board_width:g}in across. Do not keep trimming it by an inch.")
+            f"{mat.display_name} comes up to {widest:g}in long and {board_width:g}in "
+            f"wide. A panel wider than that is edge-glued from strips, which is "
+            f"planned for you — but this part is {long_side:g}in long, and no glue-up "
+            f"makes a board longer than the tree. Shorten it to {widest:g}in or less, "
+            f"or give it a sheet-good material (plywood or MDF, in 48x96 panels).")
     return (
         f"Stock comes in {', '.join(f'{s.w:g}x{s.h:g}' for s in mat.stock_sizes)}; "
         f"this part is {long_side:g}x{short_side:g}. Reduce it to fit one of those, "
