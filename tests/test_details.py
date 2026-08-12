@@ -279,3 +279,17 @@ def test_side_elevation_strikes_hidden_shelves_back_in():
     hidden = re.findall(r'<rect[^>]*stroke="#8b857a"[^>]*dasharray', svg)
     assert hidden, "hidden shelf lines must be struck back in"
     print(f"  [ok] side elevation shows {len(hidden)} hidden edge(s) dashed")
+
+
+def test_long_section_reason_stays_on_the_canvas():
+    """Gate 3 caught this on a live build: the designer's reason moved to the
+    caption line so it would read whole, and nothing bounded its width."""
+    why = ("Longitudinal section through center to show seat dado, shelf dado, "
+           "and back panel attachment detail for the whole assembly")
+    spec = {**_CASE, "sections": [
+        {"tag": "A-A", "axis": "x", "at_expr": "width/2", "why": why}]}
+    geo = compile_design(DesignIR.from_dict(spec))
+    c = next(v for k, v in detail_drawings(geo).items() if k.startswith("section_"))
+    assert not c.overflowing_labels(), c.overflowing_labels()
+    assert not c.geometry_overflow()
+    print("  [ok] a long section reason is fitted to the canvas, not run off it")

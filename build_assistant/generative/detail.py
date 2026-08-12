@@ -250,7 +250,16 @@ def cross_section(geo: Geometry, axis: str = "x", cut: float | None = None,
         caption += f" · {why}"
     elif plane_name:
         caption += f" · {plane_name}"
-    c.text(MARGIN, MARGIN - 16, caption, size=8.5, anchor="start", color="#a4632e")
+    # The designer's reason moved here so it could read whole rather than clip under
+    # the stage badge — but nothing bounded it, and a long one ran off the canvas.
+    # Gate 3 caught it on a live build. Step the type down to fit, then clip.
+    avail = W - MARGIN - 10
+    size = 8.5
+    if len(caption) * size * 0.6 > avail:
+        size = max(6.5, avail / (len(caption) * 0.6))
+    cap_chars = max(8, int(avail / (size * 0.6)))
+    c.text(MARGIN, MARGIN - 16, _clip(caption, cap_chars), size=size,
+           anchor="start", color="#a4632e")
     return c
 
 
