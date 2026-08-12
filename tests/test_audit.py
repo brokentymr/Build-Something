@@ -230,3 +230,23 @@ def test_loop_never_ends_worse_than_the_best_round_it_found():
     assert audit_placement(res.geo) == [], "the loop shipped the regressed model"
     assert any(t["action"] == "revert_to_best" for t in res.rounds), res.rounds
     print("  [ok] the loop keeps the best model it found, not the last one")
+
+
+def test_unfittable_solid_panel_is_told_what_to_do():
+    """A live run spent six rounds trimming a 50in x 12in solid side an inch at a
+    time. Solid panels that wide are edge-glued, which the engine does not model —
+    so the error has to name the route that exists."""
+    from build_assistant.core.invariants import check_invariants, InvariantError
+    spec = {**_CASE, "materials": [{"role": "carcass", "material_id": "hardwood_4_4"},
+                                   {"role": "back", "material_id": "ply_025"}]}
+    geo = compile_design(DesignIR.from_dict(spec), check=False)
+    try:
+        check_invariants(geo)
+    except InvariantError as exc:
+        msg = str(exc)
+    else:
+        raise AssertionError("a 12in solid panel must not pass the stock check")
+    assert "edge-glued" in msg, msg
+    assert "sheet-good" in msg, "the message must name the route that works"
+    assert "8in" in msg, "the message must state the real board width"
+    print("  [ok] an unfittable solid panel names the remedy, not just the fault")

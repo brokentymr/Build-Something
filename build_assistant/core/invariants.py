@@ -123,5 +123,30 @@ def _inv_parts_fit_stock(geo: Geometry) -> None:
         )
         if not ok:
             raise InvariantError(
-                f"part {p.id} ({L}x{W}) fits no stock size of {p.material_id}"
+                f"part {p.id} ({L}x{W}) fits no stock size of {p.material_id}. "
+                + _stock_remedy(p, mat, L, W)
             )
+
+
+def _stock_remedy(part, mat, L: float, W: float) -> str:
+    """Say what to do, not just what is wrong.
+
+    A design loop given only "fits no stock" shrinks the part an inch at a time and
+    never gets there. A 50in x 9in solid side is not a stock-size problem: solid
+    panels that wide are edge-glued from narrower boards, which this engine does
+    not model, so the workable answer is a sheet good."""
+    widest = max((max(s.w, s.h) for s in mat.stock_sizes), default=0.0)
+    board_width = max((min(s.w, s.h) for s in mat.stock_sizes), default=0.0)
+    long_side, short_side = max(L, W), min(L, W)
+    if mat.category in ("lumber", "hardwood") and short_side > board_width:
+        return (
+            f"The widest {mat.display_name} board is {board_width:g}in "
+            f"(up to {widest:g}in long), and this part needs {short_side:g}in. A solid "
+            f"panel that wide is edge-glued from several boards, which this engine "
+            f"does not model. Either give this part a sheet-good material (plywood or "
+            f"MDF, which comes in 48x96 panels), or redesign it so no piece exceeds "
+            f"{board_width:g}in across. Do not keep trimming it by an inch.")
+    return (
+        f"Stock comes in {', '.join(f'{s.w:g}x{s.h:g}' for s in mat.stock_sizes)}; "
+        f"this part is {long_side:g}x{short_side:g}. Reduce it to fit one of those, "
+        f"or choose a material whose stock is large enough.")
