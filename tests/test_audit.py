@@ -73,6 +73,24 @@ def test_catches_stacked_duplicate_instances():
     print("  [ok] repeated instances landing on each other are caught")
 
 
+def test_part_running_through_a_divider_is_told_to_split_into_bays():
+    """A shelf crossing a centre divider cannot be cured by shortening it — that
+    empties a bay. The loop burned five rounds on exactly this before the audit
+    said which of the two remedies applies."""
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    spec["parts"].append(
+        {"id": "DIV", "name": "centre divider", "element": "case",
+         "material_role": "carcass", "length_expr": "height",
+         "width_expr": "depth - back_t", "qty_expr": "1",
+         "box_x": "width/2 - carcass_t/2", "box_y": "0", "box_z": "0",
+         "box_w": "carcass_t", "box_d": "depth - back_t", "box_h": "height"})
+    issues = audit_placement(compile_design(DesignIR.from_dict(spec)))
+    split = [i for i in issues if "one piece per bay" in i]
+    assert split, issues
+    assert "step_x" in split[0] and "qty" in split[0], split[0]
+    print("  [ok] a part crossing a divider is told to split into bays, with numbers")
+
+
 def test_catches_solid_drawn_thinner_than_its_stock():
     """A back written as `box_d = rabbet_depth` is 3/4in ply modelled 1/4in thick —
     the cut list buys one panel and every drawing shows another."""

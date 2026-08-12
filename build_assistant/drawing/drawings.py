@@ -209,6 +209,18 @@ def per_stage_plinth(geo: Geometry) -> tuple[Canvas, Canvas]:
             one(fin, "as_finished", "what you measure on the finished piece (slab edge occludes 3/8)"))
 
 
+def _item_tag(placement_id: str, labels: dict | None) -> str:
+    """Item number for a placement — never a raw or truncated id."""
+    if not labels:
+        return placement_id
+    if placement_id in labels:
+        return str(labels[placement_id])
+    keys = [k for k in labels if placement_id.startswith(k)]
+    if keys:
+        return str(labels[max(keys, key=len)])
+    return placement_id.rstrip("0123456789") or placement_id
+
+
 def nesting_diagram(nest: NestResult, sheet_index: int, labels: dict | None = None,
                     material_name: str | None = None) -> Canvas:
     """Sheet layout, keyed by item number; font scaled to the smaller rectangle.
@@ -234,8 +246,11 @@ def nesting_diagram(nest: NestResult, sheet_index: int, labels: dict | None = No
         c.rect(10 + px * s, oy + py * s, pw * s, ph * s, fill="#f0ece3", sw=0.6)
         rect_min = min(pw * s, ph * s)
         fs = max(6.0, min(12.0, rect_min * 0.6))
-        pid = p.part_id.rstrip("0123456789")
-        tag = str(labels.get(pid, pid)) if labels else pid   # item no., never a raw id
+        # A placement id is the part id with its instance number appended, and part
+        # ids end in digits themselves ("SH1" instance 2 -> "SH12"). Stripping every
+        # trailing digit turned that into "SH", so resolve against the real part ids
+        # instead: the longest one that prefixes the placement.
+        tag = _item_tag(p.part_id, labels)
         c.text(10 + (px + pw / 2) * s, oy + (py + ph / 2) * s + fs / 3, tag, size=fs)
     return c
 

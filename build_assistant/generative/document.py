@@ -47,9 +47,17 @@ def _human(text: str, geo: Geometry) -> str:
 
     The agent names parts with symbols like ``back_panel_part``; those belong in
     the model, not on a page someone reads in a workshop."""
+    # Short ids leak too: "Dado depth in S1 and S2" is a model note, not a workshop
+    # instruction. Match whole tokens only, and only ids distinctive enough that a
+    # word boundary makes the match safe — never a bare "A" or "C".
     for p in sorted(geo.parts, key=lambda p: -len(p.id)):
-        if p.id and ("_" in p.id or len(p.id) > 3) and p.id in text:
-            text = text.replace(p.id, p.name.lower())
+        if not p.id:
+            continue
+        distinctive = ("_" in p.id or len(p.id) > 3
+                       or any(ch.isdigit() for ch in p.id)
+                       or (len(p.id) >= 2 and p.id.isupper()))   # prose is sentence case
+        if distinctive and re.search(rf"\b{re.escape(p.id)}\b", text):
+            text = re.sub(rf"\b{re.escape(p.id)}\b", p.name.lower(), text)
     if geo.finish_id and geo.finish_id in text:
         text = text.replace(geo.finish_id, _finish_name(geo).lower())
     # The agent writes "BACK panel", and the name it stands for is already

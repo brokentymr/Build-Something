@@ -464,9 +464,13 @@ def joint_detail(geo: Geometry, contact: dict, tag: str) -> Canvas | None:
                        LABEL_X, hgt - MARGIN + 6,
                        f"{housing['type']} {_frac(housing['depth'])} deep", side="right",
                        size=8.5)
+    # The note belongs to a PART, not to this seam — the same shelf turns up in
+    # several details, and an unattributed line reads as if it described whichever
+    # joint it sits under. Name whose note it is.
     part_a = _part_of(geo, a["id"])
     if part_a and part_a.joint:
-        c.text(MARGIN, hgt - 14, part_a.joint[:74], size=9, anchor="start", color="#6a655b")
+        c.text(MARGIN, hgt - 14, _clip(f"{part_a.name}: {part_a.joint}", 82),
+               size=9, anchor="start", color="#6a655b")
     return c
 
 

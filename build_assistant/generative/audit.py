@@ -141,14 +141,33 @@ def audit_placement(geo: Geometry) -> list[str]:
                 axis_i = min(range(3), key=lambda k: _axis_overlap(a, b, k))
                 lo, ext = AXES[axis_i]
                 thinner, thicker = (a, b) if a[ext] <= b[ext] else (b, a)
-                start = thicker[lo] + thicker[ext]
-                issues.append(
-                    f"parts {a['id']} and {b['id']} pass through each other: they share "
-                    f"{pen:.2f}in along {lo}. Fix by shortening one of them on {lo} so it "
-                    f"stops at the other's face — e.g. give {thinner['id']} "
-                    f"box_{lo}={start:.3f} and reduce its box_{ext} by {pen:.2f}, or start it "
-                    f"at {thicker[lo] - thinner[ext]:.3f}. A part spans BETWEEN its neighbours "
-                    f"or seats into a dado by that cut's depth — never through solid wood.")
+                spanner, obstacle = (a, b) if a[ext] >= b[ext] else (b, a)
+                inside = (obstacle[lo] > spanner[lo] + TOL
+                          and obstacle[lo] + obstacle[ext] < spanner[lo] + spanner[ext] - TOL)
+                if inside:
+                    # A shelf running straight through a centre divider cannot be
+                    # cured by shortening it — that empties one bay. It has to
+                    # become one piece per bay, so say so with the numbers.
+                    bay = obstacle[lo] - spanner[lo]
+                    step = obstacle[lo] + obstacle[ext] - spanner[lo]
+                    issues.append(
+                        f"part {spanner['id']} runs straight through {obstacle['id']}, which "
+                        f"stands inside its span on {lo}. Do NOT just shorten it — that would "
+                        f"leave one bay empty. Make it one piece per bay: keep "
+                        f"box_{lo}={spanner[lo]:.3f}, set box_{ext}={bay:.3f} (the bay width), "
+                        f"set qty to 2 per level and step_{lo}={step:.3f} so the second piece "
+                        f"starts on the far side of {obstacle['id']}. Adjust the cut list "
+                        f"length to match.")
+                else:
+                    start = thicker[lo] + thicker[ext]
+                    issues.append(
+                        f"parts {a['id']} and {b['id']} pass through each other: they share "
+                        f"{pen:.2f}in along {lo}. Fix by shortening one of them on {lo} so it "
+                        f"stops at the other's face — e.g. give {thinner['id']} "
+                        f"box_{lo}={start:.3f} and reduce its box_{ext} by {pen:.2f}, or start it "
+                        f"at {thicker[lo] - thinner[ext]:.3f}. A part spans BETWEEN its "
+                        f"neighbours or seats into a dado by that cut's depth — never through "
+                        f"solid wood.")
 
     # ---- 4. repeated instances landing on each other ----------------------
     by_id: dict[str, list] = {}
