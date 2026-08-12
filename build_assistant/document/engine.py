@@ -39,49 +39,114 @@ CAPACITY = 900                                 # below available (Lesson 5 buffe
 
 CSS = f"""
 * {{ box-sizing: border-box; }}
-body {{ margin: 0; font-family: Helvetica, Arial, sans-serif; color: #1a1a1a; }}
+body {{ margin: 0; font-family: "Helvetica Neue", Arial, sans-serif; color: #17150f;
+  -webkit-font-smoothing: antialiased; }}
 .page {{
-  width: {PAGE_W}px; height: {PAGE_H}px; padding: {MARGIN}px;
+  width: {PAGE_W}px; height: {PAGE_H}px; padding: {MARGIN}px {MARGIN}px {int(FOOTER_H)+18}px;
   display: flex; flex-direction: column; overflow: hidden;
   page-break-after: always; position: relative; background: #fff;
 }}
 .content {{ flex: 1; overflow: hidden; }}
-.footer {{ margin-top: auto; height: {FOOTER_H}px; border-top: 1px solid #ccc;
-  font-size: 10px; color: #666; display: flex; justify-content: space-between;
-  align-items: flex-end; padding-top: 6px; }}
-h1.doctitle {{ font-size: 30px; margin: 4px 0; }}
-.subtitle {{ color: #555; font-size: 14px; margin-bottom: 14px; }}
-h2.section {{ font-size: 16px; border-bottom: 2px solid #1a1a1a; padding-bottom: 3px;
-  margin: 8px 0 8px; }}
-p {{ font-size: 12.5px; line-height: 1.5; margin: 6px 0; }}
-table.grid {{ width: 100%; border-collapse: collapse; font-size: 11.5px; margin: 6px 0; }}
-table.grid th {{ background: #1a1a1a; color: #fff; text-align: left; padding: 5px 7px; }}
-table.grid td {{ border: 1px solid #ddd; padding: 5px 7px; vertical-align: top; }}
+/* running header band on interior pages */
+.runhead {{ display:flex; justify-content:space-between; font-family:"SF Mono",Menlo,monospace;
+  font-size:8.5px; letter-spacing:1.2px; color:#9a948a; text-transform:uppercase;
+  padding-bottom:8px; margin-bottom:16px; border-bottom:1px solid #ece7dd; }}
+.footer {{ margin-top: auto; height: {FOOTER_H}px; border-top: 2px solid #17150f;
+  font-family:"SF Mono",Menlo,monospace; font-size: 9px; letter-spacing:1px; color: #b3ada2;
+  text-transform:uppercase; display: flex; justify-content: space-between;
+  align-items: flex-end; padding-top: 7px; }}
+
+/* editorial type */
+h1.doctitle {{ font-size: 44px; line-height:1.02; letter-spacing:-1px; margin: 4px 0 10px;
+  font-weight:800; }}
+.subtitle {{ color: #4a463d; font-size: 13.5px; line-height:1.55; margin-bottom: 14px; max-width:62%; }}
+h2.section {{ font-size: 19px; letter-spacing:-0.3px; font-weight:800; margin: 4px 0 12px;
+  padding-bottom:8px; border-bottom:2px solid #17150f; display:flex;
+  justify-content:space-between; align-items:baseline; }}
+h2.section .kicker {{ font-family:"SF Mono",Menlo,monospace; font-size:9.5px; letter-spacing:1.5px;
+  color:#a4632e; font-weight:600; text-transform:uppercase; }}
+p {{ font-size: 12px; line-height: 1.62; margin: 7px 0; color:#2c281f; }}
+b {{ color:#17150f; }}
+
+/* tables — mono uppercase headers, hairline rules */
+table.grid {{ width: 100%; border-collapse: collapse; font-size: 11px; margin: 8px 0 4px; }}
+table.grid th {{ text-align: left; padding: 6px 8px; font-family:"SF Mono",Menlo,monospace;
+  font-size:8.5px; letter-spacing:1px; text-transform:uppercase; color:#8b857a;
+  border-bottom:1.5px solid #17150f; }}
+table.grid td {{ border-bottom: 1px solid #ece7dd; padding: 6px 8px; vertical-align: top; }}
 table.grid td.cb {{ text-align: center; width: 20px; }}
-.fig {{ border: 1px solid #e2e2e2; border-radius: 4px; padding: 8px; margin: 8px 0; background:#fff; }}
-.figcap {{ font-size: 10.5px; color: #555; margin-top: 4px; }}
-.figcap .stage {{ color:#111; font-weight:bold; }}
-.step {{ border: 1px solid #ddd; border-left: 4px solid #1a1a1a; border-radius: 3px;
-  padding: 8px 10px; margin: 7px 0; background: #fafafa; }}
-.stephead {{ display: flex; align-items: baseline; gap: 8px; }}
-.stepn {{ background:#1a1a1a; color:#fff; border-radius:50%; width:22px; height:22px;
-  display:inline-flex; align-items:center; justify-content:center; font-size:11px; flex:0 0 auto; }}
-.stepphase {{ font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:#888; }}
-.steptitle {{ font-weight:bold; font-size:13px; }}
-.stepdetail {{ font-size:12px; margin:5px 0; line-height:1.45; }}
-.chips {{ margin: 4px 0; }}
-.chip {{ display:inline-block; font-size:10px; padding:2px 6px; margin:2px 3px 2px 0;
-  border-radius:10px; }}
-.chip.tool {{ background:#e7eef7; }} .chip.mat {{ background:#eef3e7; }} .chip.fast {{ background:#f7ede7; }}
-.steptol {{ font-size:11px; color:#333; }}
-.stepsign {{ font-size:11px; margin-top:4px; }} .stepsign .ts {{ float:right; color:#999; }}
-.cover .revtag {{ position:absolute; top:{MARGIN}px; right:{MARGIN}px; background:#1a1a1a;
-  color:#fff; font-size:11px; padding:3px 10px; border-radius:3px; }}
+table.grid tr:last-child td {{ border-bottom:none; }}
+table.grid.strong td:last-child {{ font-weight:700; }}
+
+/* figures */
+.fig {{ border: 1px solid #ece7dd; border-radius: 3px; padding: 14px; margin: 10px 0;
+  background:#fcfbf8; }}
+.figcap {{ font-family:"SF Mono",Menlo,monospace; font-size: 8.5px; letter-spacing:.8px;
+  color: #a29b8f; margin-top: 8px; text-transform:uppercase; }}
+.figcap .stage {{ color:#17150f; font-weight:bold; }}
+
+/* build steps */
+.step {{ border-top: 1.5px solid #17150f; padding: 10px 0 12px; margin: 0; }}
+.stephead {{ display: flex; align-items: baseline; gap: 10px; }}
+.stepn {{ font-family:"SF Mono",Menlo,monospace; font-size:22px; font-weight:800; color:#d8d1c4;
+  line-height:1; flex:0 0 auto; min-width:30px; }}
+.stepphase {{ font-family:"SF Mono",Menlo,monospace; font-size:8px; text-transform:uppercase;
+  letter-spacing:1px; color:#a4632e; }}
+.steptitle {{ font-weight:800; font-size:14px; letter-spacing:-0.2px; }}
+.stepdetail {{ font-size:11.5px; margin:6px 0 6px 40px; line-height:1.55; color:#2c281f; }}
+.chips {{ margin: 4px 0 4px 40px; }}
+.chip {{ display:inline-block; font-family:"SF Mono",Menlo,monospace; font-size:8.5px;
+  padding:3px 8px; margin:2px 4px 2px 0; border-radius:2px; letter-spacing:.4px;
+  text-transform:uppercase; }}
+.chip.tool {{ background:#eef2f6; color:#3a5a78; }}
+.chip.mat {{ background:#eef3e9; color:#4a6b3a; }}
+.chip.fast {{ background:#f6ede6; color:#8a5a34; }}
+.steptol {{ font-size:10.5px; color:#4a463d; margin-left:40px; }}
+.stepsign {{ font-size:10.5px; margin:5px 0 0 40px; color:#6a655b; }}
+.stepsign .ts {{ float:right; color:#c3bdb2; font-family:"SF Mono",Menlo,monospace; }}
+
+/* cover */
+.cover .revtag {{ position:absolute; top:{MARGIN}px; right:{MARGIN}px;
+  font-family:"SF Mono",Menlo,monospace; font-size:9px; letter-spacing:1.5px; color:#8b857a;
+  text-transform:uppercase; }}
+.cover .toprule {{ border-top:5px solid #17150f; margin-bottom:22px; }}
+.cover .eyebrow {{ font-family:"SF Mono",Menlo,monospace; font-size:10px; letter-spacing:3px;
+  color:#8b857a; text-transform:uppercase; margin-bottom:6px; }}
+.coverwrap {{ display:flex; gap:24px; }}
+.cover .lead {{ flex:1; }}
+/* spec chips column */
+.specchips {{ width:210px; flex:0 0 auto; }}
+.specchips .row {{ display:flex; justify-content:space-between; gap:10px; padding:7px 0;
+  border-bottom:1px solid #ece7dd; }}
+.specchips .k {{ font-family:"SF Mono",Menlo,monospace; font-size:8.5px; letter-spacing:1px;
+  color:#a29b8f; text-transform:uppercase; padding-top:2px; }}
+.specchips .v {{ font-family:"SF Mono",Menlo,monospace; font-size:11px; font-weight:600;
+  text-align:right; color:#17150f; }}
 .specsummary {{ display:grid; grid-template-columns:1fr 1fr; gap:6px 24px; margin:12px 0; }}
-.specsummary .k {{ color:#888; font-size:11px; display:inline-block; width:100px; }}
-.specsummary .v {{ font-weight:bold; font-size:13px; }}
+.specsummary .k {{ color:#a29b8f; font-size:10px; font-family:"SF Mono",Menlo,monospace;
+  letter-spacing:.5px; text-transform:uppercase; display:inline-block; width:96px; }}
+.specsummary .v {{ font-weight:700; font-size:12.5px; }}
+
+/* callout boxes */
+.callouts {{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:18px; margin-top:20px;
+  border-top:2px solid #17150f; padding-top:16px; }}
+.callout .ct {{ font-weight:800; font-size:13px; letter-spacing:-0.2px; margin-bottom:5px; }}
+.callout p {{ font-size:10.5px; line-height:1.5; margin:0; color:#4a463d; }}
+.callout.crit .ct {{ color:#a4632e; }}
+.callout.box {{ padding:12px 14px; border-radius:3px; }}
+.callout.warn {{ background:#fbf1ea; border-left:3px solid #c0642e; }}
+.callout.warn .ct {{ color:#a4632e; }}
+.callout.info {{ background:#eef2f5; border-left:3px solid #3a6187; }}
+.callout.info .ct {{ color:#33587c; }}
+.notice {{ background:#fbf1ea; border-left:3px solid #c0642e; border-radius:3px;
+  padding:12px 14px; font-size:11px; color:#8a5a34; margin:10px 0; }}
+.twocol {{ display:grid; grid-template-columns:1fr 1fr; gap:22px; align-items:start; }}
+
 svg {{ display:block; width:100%; height:auto; }}
-.fig svg {{ width:100%; height:auto; max-height:780px; }}
+.fig svg {{ width:100%; height:auto; max-height:760px; }}
+.cover .fig {{ margin:8px 0; padding:8px; }}
+.cover .fig svg {{ max-height:392px; }}
+.cover .toprule {{ margin-bottom:16px; }}
 """
 
 
@@ -171,15 +236,19 @@ def _paginate(blocks: list[Block], heights: dict[str, float]) -> list[list[Block
     return fixed
 
 
-def _render_pages(pages: list[list[Block]]) -> str:
+def _render_pages(pages: list[list[Block]], runhead: str = "", footer_left: str = "") -> str:
     total = len(pages)
+    fl = footer_left or "Build packet &middot; Rev A"
     out = [f'<!doctype html><html><head><meta charset="utf-8"><style>{CSS}',
            "@page { size: letter; margin: 0; }</style></head><body>"]
     for i, page in enumerate(pages, 1):
+        is_cover = any(b.kind == "cover" for b in page)
+        rh = "" if is_cover else f'<div class="runhead"><span>{runhead}</span>' \
+                                 f'<span>Build packet Rev {REVISION}</span></div>'
         body = "\n".join(b.html for b in page)
         out.append(
-            f'<div class="page"><div class="content">{body}</div>'
-            f'<div class="footer"><span>Coffee table &middot; Rev {REVISION}</span>'
+            f'<div class="page">{rh}<div class="content">{body}</div>'
+            f'<div class="footer"><span>{fl}</span>'
             f'<span>{i:02d} / {total:02d}</span></div></div>'
         )
     out.append("</body></html>")
@@ -191,7 +260,18 @@ def build_document(geo: Geometry, plan: NestingPlan, out_name: str = "coffee_tab
     blocks = build_blocks(geo, plan)
     heights = _measure(blocks)                       # pass 1
     pages = _paginate(blocks, heights)               # pass 2
-    html = _render_pages(pages)                       # totals resolved here
+    L = fmt = None
+    try:
+        from ..drawing.primitives import fmt_inches
+        dims = (f"{fmt_inches(geo.elements[0].finished_length.as_finished)} x "
+                f"{fmt_inches(geo.elements[0].finished_width.as_finished)} x "
+                f"{fmt_inches(geo.scalar('overall_height'))}") if geo.elements else ""
+    except Exception:
+        dims = ""
+    kind = geo.structure.get("node_kind", geo.node).replace("_", " ")
+    runhead = f"{kind} &middot; {dims}".strip(" &middot;")
+    html = _render_pages(pages, runhead=runhead,
+                         footer_left=f"{kind} build packet")  # totals resolved here
     os.makedirs("out", exist_ok=True)
     html_path = os.path.join("out", f"{out_name}.html")
     with open(html_path, "w") as fh:

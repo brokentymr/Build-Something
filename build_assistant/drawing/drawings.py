@@ -128,19 +128,66 @@ def core_layout(geo: Geometry) -> Canvas:
 
 
 def exploded_assembly(geo: Geometry) -> Canvas:
-    L = geo.elements[0].finished_length.as_finished
-    Wd = geo.elements[0].finished_width.as_finished
-    edge = geo.elements[0].finished_height.as_finished
-    plinth_vis = geo.scalar("plinth.height.as_finished")
-    c = Canvas(W, 360, title="Exploded assembly", stage="as_finished")
-    s = 6.0
-    # slab up top
-    c.iso_box(120, 120, L, Wd, edge, scale=s, label=None)
-    c.leader(150, 110, 90, 90, "slab")
-    # plinth below
-    c.iso_box(150, 300, L * 0.72, Wd * 0.72, plinth_vis, scale=s, label=None)
-    c.leader(180, 290, 110, 300, "plinth")
-    c.line(220, 150, 235, 210, 0.6, dash="3 3", color="#888")
+    """Four-layer exploded isometric, numbered bottom-to-top (reference FIG 1)."""
+    c = Canvas(W, 380, title="Exploded assembly — four-layer build, bottom to top",
+               stage="as_finished")
+    import math
+    a = math.radians(30)
+    dx, dy = math.cos(a), math.sin(a)
+    sc = 3.0                                   # px per inch
+    L = geo.elements[0].finished_length.as_finished * sc
+    Wd = geo.elements[0].finished_width.as_finished * sc
+    ox, oy = 250.0, 250.0                       # origin of the bottom layer (front-bottom-left)
+
+    def slab(base_y, thick, top_fill, side_fill, front_fill, footprint=1.0):
+        """Draw one flat iso slab; returns the y of its top face centre for leaders."""
+        ll = L * footprint
+        ww = Wd * footprint
+        offx = (L - ll) / 2
+        x0 = ox + offx
+        t = thick * sc
+        # front face
+        c.polygon([(x0, base_y), (x0 + ll, base_y), (x0 + ll, base_y - t), (x0, base_y - t)],
+                  fill=front_fill, sw=1.0)
+        # right side face
+        c.polygon([(x0 + ll, base_y), (x0 + ll + ww * dx, base_y - ww * dy),
+                   (x0 + ll + ww * dx, base_y - ww * dy - t), (x0 + ll, base_y - t)],
+                  fill=side_fill, sw=1.0)
+        # top face
+        c.polygon([(x0, base_y - t), (x0 + ll, base_y - t),
+                   (x0 + ll + ww * dx, base_y - ww * dy - t), (x0 + offx + ww * dx, base_y - ww * dy - t)],
+                  fill=top_fill, sw=1.0)
+        return x0, base_y - t
+
+    # layer geometry (exploded with vertical gaps), bottom -> top
+    layers = [
+        ("1", "Plinth carcass", "3/4 ply box, 13 tall, inset 3 per side",
+         14.0, "#e8d7ac", "#d9c48f", "#f0e4c6", 0.66),
+        ("2", "Slab carcass", "3/4 ply torsion box, 2-1/4 thick",
+         2.25, "#c9cdd2", "#b3b8bf", "#dde0e4", 1.0),
+        ("3", "Cement board skin", "1/4 in, thinset + screws",
+         0.9, "#b8bcc0", "#a4a8ad", "#cfd2d6", 1.0),
+        ("4", "Microcement", "3 coats, sealer, wax",
+         0.7, "#8a8f95", "#767b81", "#a3a8ad", 1.0),
+    ]
+    gap = 34
+    base = oy
+    tops = []
+    for (num, name, sub, thick, tf, sf, ff, fp) in layers:
+        x0, top_y = slab(base, thick, tf, sf, ff, fp)
+        tops.append((num, name, sub, base, top_y))
+        base = top_y - gap
+    # dashed alignment guides between layers
+    for i in range(len(tops) - 1):
+        c.line(ox + 4, tops[i][4] - 4, ox + 4, tops[i + 1][3] + 4, 0.5, dash="3 3", color="#b7b1a6")
+    # numbered legend down the left with a rule per layer
+    ly = 120
+    for (num, name, sub, base_y, top_y) in tops:
+        c.text(30, ly + 4, num, size=17, anchor="start", weight="bold", color="#c0b7a5")
+        c.text(52, ly, name.upper(), size=10, anchor="start", weight="bold")
+        c.text(52, ly + 12, sub, size=8, anchor="start", color="#8b857a")
+        c.line(52, ly + 18, 200, ly + 18, 0.4, color="#e0dacd")
+        ly += 58
     return c
 
 

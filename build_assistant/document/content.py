@@ -127,21 +127,60 @@ def _cover(geo: Geometry, draw) -> str:
     L = fmt_inches(geo.elements[0].finished_length.as_finished)
     Wd = fmt_inches(geo.elements[0].finished_width.as_finished)
     H = fmt_inches(geo.scalar("overall_height"))
+    chips = [
+        ("Overall", f"{L} &times; {Wd} &times; {H}"),
+        ("Weight", f"~{geo.scalar('weight_estimate'):g} lb"),
+        ("Skill", "Intermediate"),
+        ("Sheets", f"{sum(1 for _ in geo.parts)} parts / 3 sheets"),
+        ("Joinery", "Butt, glued + screwed"),
+        ("Finish", "Microcement, 3 coats"),
+        ("Coated area", f"~{geo.scalar('coated_area'):g} sq ft"),
+        ("Reveal", f"{fmt_inches(geo.scalar('plinth.inset.as_finished'))} / side"),
+    ]
+    chiprows = "".join(f'<div class="row"><span class="k">{k}</span>'
+                       f'<span class="v">{v}</span></div>' for k, v in chips)
+    callouts = _cover_callouts(geo)
     return f"""
     <div class="cover">
-      <div class="revtag">Revision {REVISION}</div>
-      <h1 class="doctitle">Coffee table — build package</h1>
-      <div class="subtitle">Microcement over cement board · plinth base · single monolith</div>
-      <div class="specsummary">
-        <div><span class="k">Overall</span><span class="v">{L} &times; {Wd} &times; {H}</span></div>
-        <div><span class="k">Slab edge</span><span class="v">{fmt_inches(geo.elements[0].finished_height.as_finished)}</span></div>
-        <div><span class="k">Reveal</span><span class="v">{fmt_inches(geo.scalar('plinth.inset.as_finished'))} per side</span></div>
-        <div><span class="k">Parts</span><span class="v">{geo.part_type_count()} types / {geo.piece_count()} pieces</span></div>
-        <div><span class="k">Est. weight</span><span class="v">~{geo.scalar('weight_estimate'):g} lb</span></div>
-        <div><span class="k">Coated area</span><span class="v">~{geo.scalar('coated_area'):g} sq ft</span></div>
+      <div class="revtag">Build packet / Rev {REVISION}</div>
+      <div class="toprule"></div>
+      <div class="coverwrap">
+        <div class="lead">
+          <div class="eyebrow">Coffee table</div>
+          <h1 class="doctitle">Microcement<br>Monolith</h1>
+          <div class="subtitle">A {L} by {Wd} top slab reading {fmt_inches(geo.elements[0].finished_height.as_finished)} thick,
+          floating on an inset plinth with a {fmt_inches(geo.scalar('plinth.inset.as_finished'))} shadow reveal on all four
+          sides. Plywood carcass, cement-board skin, warm-gray microcement over the whole assembly, no seam.</div>
+        </div>
+        <div class="specchips">{chiprows}</div>
       </div>
       {_svg(draw['exploded_assembly'])}
+      {callouts}
     </div>"""
+
+
+def _cover_callouts(geo: Geometry) -> str:
+    cut = fmt_inches(geo.scalar("plinth.carcass_height.as_cut"))
+    fin = fmt_inches(geo.scalar("plinth.height.as_finished"))
+    s = fmt_inches(geo.per_face_offset)
+    items = [
+        ("Everything here is derived",
+         "Every number comes from your answers. Change the slab edge, the reveal or the overall "
+         "size and the cut list, the nesting and the weight all move with it."),
+        ("Read the allowance page first",
+         f"Skin allowance is the one thing most likely to ruin this build. Every plywood part is "
+         f"undersized by {s} per exposed face."),
+        ("Plinth reads two heights",
+         f"Cut the plinth {cut} tall; it measures {fin} on the finished piece because the slab edge "
+         f"occludes the top. This is correct, not an error."),
+    ]
+    cells = "".join(f'<div class="callout crit"><div class="ct">{_e(t)}</div>'
+                    f'<p>{p}</p></div>' for t, p in items)
+    return f'<div class="callouts">{cells}</div>'
+
+
+def _callout(title: str, body: str, kind: str = "info") -> str:
+    return f'<div class="callout box {kind}"><div class="ct">{_e(title)}</div><p>{body}</p></div>'
 
 
 def _spec_table(geo: Geometry) -> str:
@@ -307,8 +346,9 @@ def _correction_table() -> str:
 # html helpers
 # --------------------------------------------------------------------------
 
-def _h(text: str) -> str:
-    return f'<h2 class="section">{_e(text)}</h2>'
+def _h(text: str, kicker: str = "") -> str:
+    k = f'<span class="kicker">{_e(kicker)}</span>' if kicker else ""
+    return f'<h2 class="section"><span>{_e(text)}</span>{k}</h2>'
 
 
 def _table(headers, rows, checkbox=False) -> str:
