@@ -209,32 +209,34 @@ def per_stage_plinth(geo: Geometry) -> tuple[Canvas, Canvas]:
             one(fin, "as_finished", "what you measure on the finished piece (slab edge occludes 3/8)"))
 
 
-def nesting_diagram(nest: NestResult, sheet_index: int) -> Canvas:
-    """Sheet layout, labelled by ID only; font scaled to the smaller rectangle.
+def nesting_diagram(nest: NestResult, sheet_index: int, labels: dict | None = None,
+                    material_name: str | None = None) -> Canvas:
+    """Sheet layout, keyed by item number; font scaled to the smaller rectangle.
 
-    Long, skinny stock (lumber/boards) is drawn in landscape — its length runs
-    across the page — so it stays a readable strip instead of a 1px sliver."""
+    The sheet is always drawn with its LONG axis across the page. A 48x96 panel
+    drawn upright is twice as tall as it is wide and eats a whole page for one
+    diagram; laid down it takes a third of that, so sheets share a page instead of
+    each claiming one."""
     sheet = nest.sheets[sheet_index - 1]
-    landscape = sheet.sheet_h > sheet.sheet_w * 2.2
+    landscape = sheet.sheet_h > sheet.sheet_w
     sw = sheet.sheet_h if landscape else sheet.sheet_w
     sh = sheet.sheet_w if landscape else sheet.sheet_h
-    title = (f"{nest.material_id} — sheet {sheet_index} "
-             f"({sheet.utilisation()*100:.1f}% used)"
-             + (" · not to scale, board shown lengthwise" if landscape else ""))
-    # Natural aspect (CSS max-height scales the display); capping here would push
-    # full-scale geometry past the viewBox.
+    name = material_name or nest.material_id.replace("_", " ")
+    title = (f"{name} — sheet {sheet_index} · {sheet.utilisation()*100:.0f}% used"
+             + (" · shown lengthwise" if landscape else ""))
     c = Canvas(W, W * sh / sw + 40, title=title, stage="as_cut")
     s = (W - 20) / sw
     oy = 30.0
     c.rect(10, oy, sw * s, sh * s, sw=1.3)
     for p in sheet.placements:
-        # in landscape, swap axes so the board's length is horizontal
+        # in landscape, swap axes so the stock length runs across the page
         px, py, pw, ph = (p.y, p.x, p.h, p.w) if landscape else (p.x, p.y, p.w, p.h)
         c.rect(10 + px * s, oy + py * s, pw * s, ph * s, fill="#f0ece3", sw=0.6)
         rect_min = min(pw * s, ph * s)
         fs = max(6.0, min(12.0, rect_min * 0.6))
-        pid = p.part_id.rstrip("0123456789")  # label by ID only (Lesson 9)
-        c.text(10 + (px + pw / 2) * s, oy + (py + ph / 2) * s + fs / 3, pid, size=fs)
+        pid = p.part_id.rstrip("0123456789")
+        tag = str(labels.get(pid, pid)) if labels else pid   # item no., never a raw id
+        c.text(10 + (px + pw / 2) * s, oy + (py + ph / 2) * s + fs / 3, tag, size=fs)
     return c
 
 

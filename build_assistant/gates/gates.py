@@ -89,6 +89,13 @@ def _allowed_values(geo: Geometry, plan: NestingPlan | None = None) -> set[float
         for s in m.stock_sizes:
             vals.add(_round64(s.w))
             vals.add(_round64(s.h))
+    # Cut lists quote to 1/32 (the tolerance budget is +/- 1/32); register the
+    # rounded form of every part dimension as traceable alongside the exact one.
+    for p in geo.parts:
+        for dim in (p.length, p.width):
+            for stage in ("as_cut", "as_assembled", "as_finished"):
+                v = getattr(dim, stage)
+                vals.add(_round64(round(v * 32) / 32))
     # Common shop fractions used in build prose (spacings, setbacks, tolerances).
     for frac in (1/16, 1/8, 3/16, 1/4, 3/8, 1/2, 5/8, 3/4, 1/32, 1/64):
         vals.add(_round64(frac))

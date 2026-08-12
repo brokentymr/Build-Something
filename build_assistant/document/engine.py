@@ -77,6 +77,7 @@ table.grid td {{ border-bottom: 1px solid #ece7dd; padding: 6px 8px; vertical-al
 table.grid td.cb {{ text-align: center; width: 20px; }}
 table.grid tr:last-child td {{ border-bottom:none; }}
 table.grid.strong td:last-child {{ font-weight:700; }}
+.nowrap {{ white-space: nowrap; }}
 
 /* figures */
 .fig {{ border: 1px solid #ece7dd; border-radius: 3px; padding: 14px; margin: 10px 0;
@@ -138,6 +139,9 @@ table.grid.strong td:last-child {{ font-weight:700; }}
 .callout.warn .ct {{ color:#a4632e; }}
 .callout.info {{ background:#eef2f5; border-left:3px solid #3a6187; }}
 .callout.info .ct {{ color:#33587c; }}
+.notice ul.tight {{ margin:6px 0 0; padding-left:16px; }}
+.notice ul.tight li {{ font-size:11px; line-height:1.45; margin:3px 0; }}
+.notice .ct {{ display:block; font-weight:800; font-size:12px; margin-bottom:2px; }}
 .notice {{ background:#fbf1ea; border-left:3px solid #c0642e; border-radius:3px;
   padding:12px 14px; font-size:11px; color:#8a5a34; margin:10px 0; }}
 .twocol {{ display:grid; grid-template-columns:1fr 1fr; gap:22px; align-items:start; }}

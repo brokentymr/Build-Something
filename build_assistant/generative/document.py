@@ -23,13 +23,46 @@ def _svg(c: Canvas) -> str:
            f'<span class="stage">[{c.stage}]</span></div></div>'
 
 
+def _split_notes(notes) -> list[str]:
+    """Explode semicolon-joined note blobs into individual lines."""
+    out: list[str] = []
+    for n in notes:
+        for piece in str(n).split(";"):
+            piece = piece.strip().rstrip(".")
+            if len(piece) <= 3:
+                continue
+            # a clause that opens lowercase is the tail of the previous thought,
+            # not a note of its own — rejoin it rather than orphan it
+            if out and piece[:1].islower():
+                out[-1] = out[-1] + "; " + piece
+            else:
+                out.append(piece)
+    return out
+
+
+def _human(text: str, geo: Geometry) -> str:
+    """Replace internal part ids in agent prose with the part's real name.
+
+    The agent names parts with symbols like ``back_panel_part``; those belong in
+    the model, not on a page someone reads in a workshop."""
+    for p in sorted(geo.parts, key=lambda p: -len(p.id)):
+        if p.id and ("_" in p.id or len(p.id) > 3) and p.id in text:
+            text = text.replace(p.id, p.name.lower())
+    if geo.finish_id and geo.finish_id in text:
+        text = text.replace(geo.finish_id, _finish_name(geo).lower())
+    return text
+
+
 def _stock_diagram(geo: Geometry, nest, mid: str, i: int) -> Canvas:
     """Sheet nesting for panels; a linear cut run for long board stock."""
     from ..catalog.materials import get_material
     mat = get_material(mid)
     long_stock = mat.category in ("lumber", "hardwood") or \
         max(nest.sheet_w, nest.sheet_h) > 3.2 * min(nest.sheet_w, nest.sheet_h)
-    return gdetail.board_layout(nest, i) if long_stock else nesting_diagram(nest, i)
+    if long_stock:
+        return gdetail.board_layout(nest, i)
+    items = {k: str(v) for k, v in gdraw.item_numbers(geo).items()}
+    return nesting_diagram(nest, i, labels=items, material_name=mat.display_name)
 
 
 def generic_drawings(geo: Geometry, plan: NestingPlan) -> dict:
@@ -59,15 +92,18 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
     B("cover", "cover", _cover(geo, plan, hero, kind, title, subtitle, meta, packet))
 
     # ---------- design notes / warnings ----------
-    warnings = geo.structure.get("warnings", [])
+    # One note per line. Joining them into a paragraph produced a wall of
+    # semicolons nobody reads on a shop floor.
+    warnings = _split_notes(geo.structure.get("warnings", []))
     if warnings:
-        B("warn", "prose", '<div class="notice"><b>Design notes:</b> '
-          + "; ".join(_e(w) for w in warnings) + "</div>")
+        items = "".join(f"<li>{_e(_human(w, geo))}</li>" for w in warnings[:8])
+        B("warn", "prose", '<div class="notice"><span class="ct">Design notes</span>'
+          f'<ul class="tight">{items}</ul></div>')
 
     # ---------- DESIGN SPECIFICATION (governing dims + hero views) ----------
     B("h_spec", "header", _h("Design specification", "finished dimensions"))
     if packet.get("governing_note"):
-        B("govnote", "prose", f'<div class="agent-note"><p>{_e(packet["governing_note"])}</p></div>')
+        B("govnote", "prose", f'<div class="agent-note"><p>{_e(_human(packet["governing_note"], geo))}</p></div>')
     B("spec", "table", _param_table(geo))
     for k in ("plan", "front_elevation", "side_elevation"):
         if k in hero:
@@ -78,7 +114,7 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
     if callouts:
         B("h_crit", "header", _h("Before you cut", "read this first"))
         kinds = {"crit": "warn", "warn": "warn", "info": "info"}
-        cells = "".join(_callout(c.get("title", ""), _e(c.get("body", "")),
+        cells = "".join(_callout(_human(c.get("title", ""), geo), _e(_human(c.get("body", ""), geo)),
                                  kinds.get(c.get("kind", "info"), "info")) for c in callouts[:3])
         B("crit", "prose", f'<div class="callouts" style="border:none;padding-top:0">{cells}</div>')
 
@@ -121,10 +157,12 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
     # ---------- CUT LIST ----------
     B("h_cut", "header", _h("Cut list", "quoted as-cut · item nos. match the balloons"))
     items = gdraw.item_numbers(geo)
+    # Quoted to 1/32 — the tolerance budget is +/- 1/32 and nobody can cut 61/64.
     cut = [[str(items.get(p.id, "")), _e(p.name),
-            f"{fmt_inches(p.cut_wh()[0])} &times; {fmt_inches(p.cut_wh()[1])}",
-            str(p.qty), _e(p.material_id.replace('_', ' ')),
-            f'<span class="agent-note">{_e(p.joint)}</span>'] for p in geo.parts]
+            f'<span class="nowrap">{fmt_inches(p.cut_wh()[0], 32)} &times; '
+            f'{fmt_inches(p.cut_wh()[1], 32)}</span>',
+            str(p.qty), _e(get_material(p.material_id).display_name),
+            f'<span class="agent-note">{_e(_human(p.joint, geo))}</span>'] for p in geo.parts]
     B("cut", "table", _table(["Item", "Part", "As-cut", "Qty", "Material", "Joint"], cut))
 
     # ---------- SHEET LAYOUTS ----------
@@ -137,25 +175,25 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
     tol = packet.get("tolerances") or []
     if tol:
         B("h_tol", "header", _h("Tolerance budget"))
-        B("tol", "table", '<div class="agent-note">'+_table(["Check", "Tolerance"], [[_e(t.get("check", "")), _e(t.get("tolerance", ""))] for t in tol])+'</div>')
+        B("tol", "table", '<div class="agent-note">'+_table(["Check", "Tolerance"], [[_e(_human(t.get("check", ""), geo)), _e(t.get("tolerance", ""))] for t in tol])+'</div>')
 
     # ---------- BUILD SEQUENCE ----------
     steps = packet.get("steps") or []
     if steps:
         B("h_seq", "header", _h("Build sequence", f"{len(steps)} steps"))
         for i, st in enumerate(steps, 1):
-            B(f"step_{i}", "step", _step(i, st))
+            B(f"step_{i}", "step", _step(i, st, geo))
 
     # ---------- CURE SCHEDULE ----------
     cure = packet.get("cure") or []
     if cure:
         B("h_cure", "header", _h("Cure schedule", "mostly waiting"))
-        B("cure", "table", '<div class="agent-note">'+_table(["Stage", "Wait", "Note"], [[_e(c.get("stage", "")), _e(c.get("wait", "")), _e(c.get("note", ""))] for c in cure])+'</div>')
+        B("cure", "table", '<div class="agent-note">'+_table(["Stage", "Wait", "Note"], [[_e(c.get("stage", "")), _e(c.get("wait", "")), _e(_human(c.get("note", ""), geo))] for c in cure])+'</div>')
 
     # ---------- CARE ----------
     if packet.get("care"):
         B("h_care", "header", _h("Care and maintenance"))
-        B("care", "prose", f'<div class="agent-note"><p>{_e(packet["care"])}</p></div>')
+        B("care", "prose", f'<div class="agent-note"><p>{_e(_human(packet["care"], geo))}</p></div>')
 
     # ---------- DESIGN RECORD ----------
     B("h_rec", "header", _h("Design record", "inputs that generated this packet"))
@@ -183,14 +221,14 @@ def _cover(geo, plan, hero, kind, title, subtitle, meta, packet) -> str:
              ("Shop time", meta.get("shop_time", "&mdash;")),
              ("Parts", f"{geo.part_type_count()} types / {geo.piece_count()} pcs"),
              ("Sheets", str(sum(n.sheet_count() for n in plan.nests.values()))),
-             ("Finish", _e(geo.finish_id.replace("_", " "))),
+             ("Finish", _e(_finish_name(geo))),
              ("Elapsed", meta.get("elapsed", "&mdash;"))]
     chiprows = "".join(f'<div class="row"><span class="k">{k}</span>'
                        f'<span class="v">{v}</span></div>' for k, v in chips)
     calls = ""
     if packet.get("callouts"):
-        cells = "".join(f'<div class="callout crit"><span class="ct">{_e(c.get("title",""))}</span>'
-                        f'<p>{_e(c.get("body",""))}</p></div>' for c in packet["callouts"][:3])
+        cells = "".join(f'<div class="callout crit"><span class="ct">{_e(_human(c.get("title",""), geo))}</span>'
+                        f'<p>{_e(_human(c.get("body",""), geo))}</p></div>' for c in packet["callouts"][:3])
         calls = f'<div class="callouts">{cells}</div>'
     exploded = _svg(hero["exploded"]) if "exploded" in hero else ""
     return f"""
@@ -210,6 +248,14 @@ def _cover(geo, plan, hero, kind, title, subtitle, meta, packet) -> str:
     </div>"""
 
 
+def _finish_name(geo: Geometry) -> str:
+    from ..catalog.finishes import get_finish
+    try:
+        return get_finish(geo.finish_id).display_name
+    except Exception:  # noqa: BLE001
+        return geo.finish_id.replace("_", " ")
+
+
 def _param_table(geo: Geometry) -> str:
     rows = [[_e(p.label), fmt_inches(p.value) if p.unit == "in" else f"{p.value:g} {p.unit}"]
             for p in _param_list(geo)]
@@ -227,13 +273,13 @@ def _param_list(geo: Geometry):
     return out
 
 
-def _step(i: int, st: dict) -> str:
+def _step(i: int, st: dict, geo=None) -> str:
     chips = "".join(f'<span class="chip tool">{_e(x)}</span>' for x in st.get("tools", []))
     chips += "".join(f'<span class="chip fast">{_e(x)}</span>' for x in st.get("fasteners", []))
-    check = f'<div class="stepsign">&#9744; {_e(st.get("check",""))}<span class="ts">time: ____</span></div>' \
+    check = f'<div class="stepsign">&#9744; {_e(_human(st.get("check",""), geo) if geo else st.get("check",""))}<span class="ts">time: ____</span></div>' \
         if st.get("check") else ""
     return f"""<div class="step"><div class="stephead">
       <span class="stepn">{i:02d}</span><span class="stepphase">{_e(st.get('phase',''))}</span>
-      <span class="steptitle">{_e(st.get('title',''))}</span></div>
-      <div class="stepdetail">{_e(st.get('detail',''))}</div>
+      <span class="steptitle">{_e(_human(st.get('title',''), geo) if geo else st.get('title',''))}</span></div>
+      <div class="stepdetail">{_e(_human(st.get('detail',''), geo) if geo else st.get('detail',''))}</div>
       <div class="chips">{chips}</div>{check}</div>"""

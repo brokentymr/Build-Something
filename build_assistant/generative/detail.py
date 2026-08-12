@@ -316,8 +316,11 @@ def joint_detail(geo: Geometry, contact: dict, tag: str) -> Canvas | None:
 
     hgt = 260.0
     typ = f" · typical of {contact['count']}" if contact.get("count", 1) > 1 else ""
+    from .draw import item_numbers                # never expose raw part ids
+    _it = item_numbers(geo)
     c = Canvas(W, hgt, stage="as_cut",
-               title=f"Detail {tag} — {a['id']} to {b['id']} joint, magnified{typ}")
+               title=f"Detail {tag} — item {_it.get(a['id'], a['id'])} to "
+                     f"item {_it.get(b['id'], b['id'])}, magnified{typ}")
     s = min((LABEL_X - MARGIN - 24) / (hmax - hmin), (hgt - 2 * MARGIN) / (vmax - vmin))
     ox, oy = MARGIN, hgt - MARGIN
 
@@ -409,7 +412,7 @@ def joint_detail(geo: Geometry, contact: dict, tag: str) -> Canvas | None:
 
     # part tags + nominal thickness (what the builder buys; actual is in the BOM)
     for i, (box, x0, y0, bw, bh, mat) in enumerate(parts_drawn):
-        c.text(x0 + bw / 2, y0 + bh / 2 + 3, box["id"], size=11, weight="bold")
+        c.text(x0 + bw / 2, y0 + bh / 2 + 3, str(_it.get(box["id"], box["id"])), size=11, weight="bold")
         if mat and bh > 6:
             c.dim_vertical(y0, y0 + bh, x0 - 10 - i * 26,
                            fmt_inches(mat.nominal_thickness))
