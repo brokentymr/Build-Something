@@ -111,3 +111,15 @@ def test_sheet_diagrams_lie_down():
         c = nesting_diagram(nest, 1)
         assert c.h <= c.w, f"{mid} sheet diagram is portrait ({c.w}x{c.h}) and wastes a page"
     print("  [ok] stock diagrams lie down so sheets share a page")
+
+
+def test_runhead_survives_a_missing_dimension_line():
+    """str.strip takes a SET of characters, so trimming " &middot;" off a runhead
+    with no dims ate the kind itself: "case good" printed as "case g"."""
+    from build_assistant.generative.document import build_generic_document
+    geo = compile_design(DesignIR.from_dict({**_CASE, "node_kind": "case_good"}))
+    doc = build_generic_document(geo, plan_nesting(geo), {"title": "T", "steps": []},
+                                 out_name="_runhead_probe")
+    assert "case good" in doc["html"], "the kind must survive into the runhead whole"
+    assert "case g<" not in doc["html"] and "case g " not in doc["html"]
+    print("  [ok] the runhead keeps the whole kind, with or without dimensions")

@@ -344,3 +344,33 @@ def _step(i: int, st: dict, geo=None) -> str:
       <span class="steptitle">{_e(_human(st.get('title',''), geo) if geo else st.get('title',''))}</span></div>
       <div class="stepdetail">{_e(_human(st.get('detail',''), geo) if geo else st.get('detail',''))}</div>
       <div class="chips">{chips}</div>{check}</div>"""
+
+
+def build_generic_document(geo: Geometry, plan: NestingPlan, packet: dict,
+                           out_name: str = "packet") -> dict:
+    """Two-pass build for an agent-authored design, mirroring build_document.
+
+    Callers were assembling this by hand — measure, paginate, render, name the
+    runhead — and each one had to remember that ``node_kind`` is an id: a case_good
+    design printed CASE_GOOD across every page and its footer."""
+    import os
+    from ..document.engine import _measure, _paginate, _render_pages
+
+    blocks = build_blocks_generic(geo, plan, packet)
+    heights = _measure(blocks)
+    pages = _paginate(blocks, heights)
+    kind = str(geo.structure.get("node_kind", geo.node) or "build").replace("_", " ")
+    try:
+        dims = (f"{fmt_inches(geo.scalar('overall.width'))} x "
+                f"{fmt_inches(geo.scalar('overall.depth'))} x "
+                f"{fmt_inches(geo.scalar('overall.height'))}")
+    except Exception:  # noqa: BLE001 — a design need not publish overall scalars
+        dims = ""
+    runhead = f"{kind} &middot; {dims}" if dims else kind
+    html = _render_pages(pages, runhead=runhead, footer_left=f"{kind} build packet")
+    os.makedirs("out", exist_ok=True)
+    html_path = os.path.join("out", f"{out_name}.html")
+    with open(html_path, "w") as fh:
+        fh.write(html)
+    return {"html_path": html_path, "html": html, "pages": pages,
+            "page_count": len(pages), "heights": heights, "blocks": blocks}

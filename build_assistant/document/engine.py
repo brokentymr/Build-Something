@@ -274,7 +274,9 @@ def build_document(geo: Geometry, plan: NestingPlan, out_name: str = "coffee_tab
     except Exception:
         dims = ""
     kind = geo.structure.get("node_kind", geo.node).replace("_", " ")
-    runhead = f"{kind} &middot; {dims}".strip(" &middot;")
+    # str.strip takes a SET of characters, so an empty dims chews the kind itself:
+    # "case good &middot; " came back as "case g". Join only when there is a dims.
+    runhead = f"{kind} &middot; {dims}" if dims else kind
     html = _render_pages(pages, runhead=runhead,
                          footer_left=f"{kind} build packet")  # totals resolved here
     os.makedirs("out", exist_ok=True)
