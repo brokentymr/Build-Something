@@ -218,6 +218,18 @@ class Canvas:
         off = 3 if side == "right" else -3
         self.text(lx + off, ly + fs * 0.35, label, size=fs, anchor=anchor, color="#3a352c")
 
+    def balloon(self, x, y, tag: str, r=8.5):
+        """Numbered/lettered callout balloon, the way an assembly schematic keys
+        parts to its legend. Drawn opaque so it stays readable over geometry."""
+        if tag is None:
+            raise LabelError("balloon requires an explicit tag (Lesson 7)")
+        self._els.append(
+            f'<circle cx="{x:.2f}" cy="{y:.2f}" r="{r:.2f}" fill="#fffdf8" '
+            f'stroke="#17150f" stroke-width="1.1"/>')
+        self._grow(x - r, y - r); self._grow(x + r, y + r)
+        size = r * 1.05 if len(tag) <= 2 else r * 0.82
+        self.text(x, y + size * 0.36, tag, size=size, weight="bold", color="#17150f")
+
     def detail_bubble(self, x, y, r, tag: str):
         """Circle marking a detail region, with its reference tag."""
         self._els.append(

@@ -47,7 +47,9 @@ def _ortho(geo: Geometry, ax: str, ay: str, title: str, hgt=300.0) -> Canvas:
     s = min((W - 2 * MARGIN) / real_w, (hgt - 2 * MARGIN - 24) / real_h)
     ox = MARGIN + (W - 2 * MARGIN - real_w * s) / 2
     oy = hgt - MARGIN - 8
-    invert = ay == "z"
+    # z grows up the page; depth (y) also grows up so a plan reads with the front
+    # of the piece at the bottom, the way a plan is conventionally drawn.
+    invert = ay in ("z", "y")
     for i, b in enumerate(boxes):
         bx = (b[aw] - span[ax][0]) * s
         by = (b[ahp] - span[ay][0]) * s
@@ -80,27 +82,48 @@ def side_elevation(geo: Geometry) -> Canvas:
 
 
 def exploded(geo: Geometry) -> Canvas:
-    """Isometric exploded view: each panel slides out along its own normal."""
+    """Isometric exploded assembly, drawn the way a build schematic reads.
+
+    Three things make it legible rather than a pile of panels:
+
+    * **Depth is correct.** World ``y`` grows toward the BACK, so it is negated in
+      the projection — a back panel projects up-and-right and is painted first,
+      behind everything, instead of landing on top of the shelves.
+    * **Explosion preserves assembly order.** Each part slides along its own
+      thin axis, away from the middle of the assembly, ranked by how far out it
+      already sits. Every part moves at least one full gap, so nothing stays
+      buried in the middle, and relative order is never scrambled.
+    * **Parts are keyed by balloon to a legend**, so labels cannot crowd.
+    """
     boxes = geo.structure["boxes"]
     minx, miny, minz, maxx, maxy, maxz = _bbox(boxes)
-    cx, cy, cz = (minx + maxx) / 2, (miny + maxy) / 2, (minz + maxz) / 2
-    factor = 1.0
-    placed = []
-    for b in boxes:
-        bcx, bcy, bcz = b["x"] + b["w"] / 2, b["y"] + b["d"] / 2, b["z"] + b["h"] / 2
-        normal = min((b["w"], "x"), (b["d"], "y"), (b["h"], "z"))[1]
-        off = {"x": 0.0, "y": 0.0, "z": 0.0}
-        if normal == "x":
-            off["x"] = (bcx - cx) * factor
-        elif normal == "y":
-            off["y"] = (bcy - cy) * factor
-        else:
-            off["z"] = (bcz - cz) * factor
-        placed.append({**b, "ox": off["x"], "oy": off["y"], "oz": off["z"]})
+    mid = {"x": (minx + maxx) / 2, "y": (miny + maxy) / 2, "z": (minz + maxz) / 2}
+    span = max(maxx - minx, maxy - miny, maxz - minz)
+    gap = max(1.5, span * 0.085)
 
-    # exploded bounding extents to compute scale
+    # group parts by the axis they slide along (their thinnest dimension)
+    groups: dict[str, list] = {"x": [], "y": [], "z": []}
+    for b in boxes:
+        normal = min((b["w"], "x"), (b["d"], "y"), (b["h"], "z"))[1]
+        groups[normal].append(b)
+
+    placed = []
+    for axis, members in groups.items():
+        lo_key, ext_key = {"x": ("x", "w"), "y": ("y", "d"), "z": ("z", "h")}[axis]
+        m = mid[axis]
+        for direction in (-1, 1):
+            side = [b for b in members
+                    if (1 if (b[lo_key] + b[ext_key] / 2) >= m else -1) == direction]
+            # nearest the middle moves least; every part moves at least one gap
+            side.sort(key=lambda b: abs((b[lo_key] + b[ext_key] / 2) - m))
+            for rank, b in enumerate(side):
+                off = {"x": 0.0, "y": 0.0, "z": 0.0}
+                off[axis] = direction * gap * (1 + rank)
+                placed.append({**b, "ox": off["x"], "oy": off["y"], "oz": off["z"]})
+
     def isopt(x, y, z, s, oxp, oyp):
-        return (oxp + (x - y) * _C30 * s, oyp + ((x + y) * _S30 - z) * s)
+        # y is negated: increasing depth recedes up-and-right, as it should
+        return (oxp + (x + y) * _C30 * s, oyp + ((x - y) * _S30 - z) * s)
 
     pts = []
     for b in placed:
@@ -112,46 +135,89 @@ def exploded(geo: Geometry) -> Canvas:
     raw = [isopt(x, y, z, 1.0, 0, 0) for x, y, z in pts]
     minsx = min(p[0] for p in raw); maxsx = max(p[0] for p in raw)
     minsy = min(p[1] for p in raw); maxsy = max(p[1] for p in raw)
-    hgt = 400.0
-    # Geometry sits to the RIGHT of a legend gutter; each part gets ONE leader-
-    # labelled legend entry (not a tag per instance), so labels never pile up.
-    gutter = 150.0
-    s = min((W - gutter - 30.0) / (maxsx - minsx), (hgt - 2 * MARGIN) / (maxsy - minsy))
-    oxp = gutter + 14.0 - minsx * s
-    oyp = MARGIN - minsy * s
+
+    names = {p.id: p.name for p in geo.parts}
+    qty = {p.id: p.qty for p in geo.parts}
+    ids = [p.id for p in geo.parts]
+    cols = 3 if len(ids) > 8 else 2
+    rows_n = -(-len(ids) // cols)
+    legend_h = 26.0 + rows_n * 13.0
+    draw_h = 350.0
+    hgt = draw_h + legend_h
+
+    pad = 30.0
+    s = min((W - 2 * pad) / (maxsx - minsx), (draw_h - 2 * pad) / (maxsy - minsy))
+    oxp = pad - minsx * s + (W - 2 * pad - (maxsx - minsx) * s) / 2
+    oyp = pad - minsy * s
     c = Canvas(W, hgt, title="Exploded assembly", stage="as_finished")
 
-    # draw back-to-front (sort by depth key x+y+z ascending so nearer drawn last)
-    order = sorted(placed, key=lambda b: (b["x"] + b["ox"] + b["y"] + b["oy"] + b["z"] + b["oz"]))
+    # Painter's order: far and low first. With depth toward -y and +x, closeness
+    # rises with (x - y + z), so ascending draws the back of the piece first.
+    def depth(b):
+        return ((b["x"] + b["ox"] + b["w"] / 2) - (b["y"] + b["oy"] + b["d"] / 2)
+                + (b["z"] + b["oz"] + b["h"] / 2))
+
     anchors: dict[str, tuple] = {}
-    for i, b in enumerate(order):
+    for i, b in enumerate(sorted(placed, key=depth)):
         x, y, z = b["x"] + b["ox"], b["y"] + b["oy"], b["z"] + b["oz"]
         w, d, h = b["w"], b["d"], b["h"]
         P = lambda X, Y, Z: isopt(X, Y, Z, s, oxp, oyp)
+        # visible faces from this camera: top (+z), front (y min), right (x max)
         top = [P(x, y, z + h), P(x + w, y, z + h), P(x + w, y + d, z + h), P(x, y + d, z + h)]
-        left = [P(x, y, z), P(x, y + d, z), P(x, y + d, z + h), P(x, y, z + h)]
         front = [P(x, y, z), P(x + w, y, z), P(x + w, y, z + h), P(x, y, z + h)]
+        right = [P(x + w, y, z), P(x + w, y + d, z), P(x + w, y + d, z + h), P(x + w, y, z + h)]
         sh = _SHADES[i % len(_SHADES)]
-        c.polygon(front, fill=sh, sw=0.8)
-        c.polygon(left, fill=_darken(sh, 0.9), sw=0.8)
         c.polygon(top, fill=_lighten(sh), sw=0.8)
-        anchors.setdefault(b["id"], P(x + w / 2, y + d / 2, z + h))
+        c.polygon(front, fill=sh, sw=0.8)
+        c.polygon(right, fill=_darken(sh, 0.88), sw=0.8)
+        anchors[b["id"]] = P(x + w / 2, y + d / 2, z + h / 2)
 
-    # legend: one row per part, ordered by its target height so leaders can't cross
-    names = {p.id: p.name for p in geo.parts}
-    qty = {p.id: p.qty for p in geo.parts}
-    rows = sorted(anchors.items(), key=lambda kv: kv[1][1])
-    maxw = gutter - 22.0
-    labels = [f"{pid} · {names.get(pid, '')}" + (f" ×{qty[pid]}" if qty.get(pid, 1) > 1 else "")
-              for pid, _ in rows]
-    longest = max((len(t) for t in labels), default=1)
-    fs = max(6.0, min(8.6, maxw / (longest * 0.58)))
-    cap = max(8, int(maxw / (fs * 0.58)))
-    top_y, bot_y = MARGIN - 10, hgt - MARGIN + 10
-    for i, ((pid, (px, py)), txt) in enumerate(zip(rows, labels)):
-        ly = top_y + (bot_y - top_y) * (i + 0.5) / max(1, len(rows))
-        t = txt if len(txt) <= cap else txt[: max(1, cap - 1)] + "…"
-        c.elbow_leader(px, py, gutter - 8.0, ly, t, side="left", size=fs)
+    # Balloons key each part to the legend. Small parts cluster, so relax the
+    # balloon positions apart and tie any that had to move back to their part with
+    # a short leader — a balloon never sits on top of another balloon.
+    pos = {pid: [p[0], p[1]] for pid, p in anchors.items()}
+    r = 8.5
+    for _ in range(60):
+        moved = False
+        keys = list(pos)
+        for i, a in enumerate(keys):
+            for b in keys[i + 1:]:
+                dx = pos[b][0] - pos[a][0]
+                dy = pos[b][1] - pos[a][1]
+                dist = (dx * dx + dy * dy) ** 0.5 or 0.01
+                need = 2 * r + 3
+                if dist < need:
+                    push = (need - dist) / 2
+                    ux, uy = dx / dist, dy / dist
+                    pos[a][0] -= ux * push; pos[a][1] -= uy * push
+                    pos[b][0] += ux * push; pos[b][1] += uy * push
+                    moved = True
+        if not moved:
+            break
+    for pid, (ax, ay) in anchors.items():
+        bx, by = pos[pid]
+        bx = min(max(bx, r + 2), W - r - 2)
+        by = min(max(by, r + 16), draw_h - r - 2)
+        if abs(bx - ax) + abs(by - ay) > 3:
+            c.line(ax, ay, bx, by, 0.5, color="#7a746a")
+        c.balloon(bx, by, pid)
+
+    # legend grid beneath the view
+    ly0 = draw_h + 12.0
+    c.line(pad, ly0 - 8, W - pad, ly0 - 8, 0.8, color="#17150f")
+    colw = (W - 2 * pad) / cols
+    for i, pid in enumerate(ids):
+        col, row = i % cols, i // cols
+        lx = pad + col * colw
+        ty = ly0 + 10 + row * 13.0
+        c.balloon(lx + 6, ty - 3.2, pid, r=6.0)
+        label = names.get(pid, "")
+        if qty.get(pid, 1) > 1:
+            label += f"  ×{qty[pid]}"
+        maxchars = int((colw - 20) / (7.6 * 0.55))
+        if len(label) > maxchars:
+            label = label[: max(1, maxchars - 1)] + "…"
+        c.text(lx + 15, ty, label, size=7.6, anchor="start", color="#3a352c")
     return c
 
 
