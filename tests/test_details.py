@@ -237,3 +237,20 @@ def test_auto_section_fallback_when_undirected():
     d = detail_drawings(geo)
     assert any(k.startswith("section_") for k in d), "engine must still pick a cut"
     print("  [ok] engine falls back to choosing the cut when none is directed")
+
+
+def test_elevation_draws_far_parts_first():
+    """Without depth ordering the back panel lands on top of the shelves and a
+    front elevation reads as one blank filled rectangle."""
+    import re
+    from build_assistant.generative.draw import front_elevation, _SHADES
+    geo = _geo()
+    # shades are assigned per part in first-appearance order: A, B, C, D(back)
+    back_shade = _SHADES[3]
+    fills = re.findall(r'<rect[^>]*fill="(#[0-9a-fA-F]+)"', front_elevation(geo).render())
+    body = [f for f in fills if f.lower() not in ("#fff", "#111")]   # page, stage badge
+    assert body, "elevation drew nothing"
+    assert body[0].lower() == back_shade.lower(), \
+        f"the back panel must be drawn first, not {body[0]}"
+    assert body[-1].lower() != back_shade.lower(), "the back must not cover the shelves"
+    print("  [ok] elevations draw far parts first, so the structure shows")

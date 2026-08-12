@@ -31,7 +31,10 @@ def _has_boxes(geo: Geometry) -> bool:
     return bool(geo.structure.get("boxes"))
 
 
-def _ortho(geo: Geometry, ax: str, ay: str, title: str, hgt=300.0) -> Canvas:
+ORTHO_MIN_H, ORTHO_MAX_H = 260.0, 540.0
+
+
+def _ortho(geo: Geometry, ax: str, ay: str, title: str, hgt=None) -> Canvas:
     """Orthographic projection. ax/ay pick which world axes map to screen x/y.
 
     ay is drawn with world-up inverted so z points up on the page."""
@@ -43,6 +46,11 @@ def _ortho(geo: Geometry, ax: str, ay: str, title: str, hgt=300.0) -> Canvas:
     (ahp, hkey) = ext[ay]
     real_w = span[ax][1] - span[ax][0]
     real_h = span[ay][1] - span[ay][0]
+    # Scale to the full width, then let the height follow — a 32 x 54in case in a
+    # fixed 300pt frame drew at a third of the size and left half the page blank.
+    if hgt is None:
+        s_w = (W - 2 * MARGIN) / real_w
+        hgt = max(ORTHO_MIN_H, min(ORTHO_MAX_H, real_h * s_w + 2 * MARGIN + 24))
     c = Canvas(W, hgt, title=title, stage="as_finished")
     s = min((W - 2 * MARGIN) / real_w, (hgt - 2 * MARGIN - 24) / real_h)
     ox = MARGIN + (W - 2 * MARGIN - real_w * s) / 2
@@ -50,14 +58,23 @@ def _ortho(geo: Geometry, ax: str, ay: str, title: str, hgt=300.0) -> Canvas:
     # z grows up the page; depth (y) also grows up so a plan reads with the front
     # of the piece at the bottom, the way a plan is conventionally drawn.
     invert = ay in ("z", "y")
-    for i, b in enumerate(boxes):
+
+    # Draw far parts first. Without this the back panel lands on top of the
+    # shelves and a front elevation reads as one blank filled rectangle.
+    view = next(a for a in ("x", "y", "z") if a not in (ax, ay))
+    depth_key = {"y": lambda b: -b["y"],      # front elevation: viewer in front
+                 "z": lambda b: b["z"],       # plan: viewer above
+                 "x": lambda b: b["x"]}[view]  # side elevation: viewer at the right
+    shade = {pid: _SHADES[i % len(_SHADES)]
+             for i, pid in enumerate(dict.fromkeys(x["id"] for x in boxes))}
+    for i, b in enumerate(sorted(boxes, key=depth_key)):
         bx = (b[aw] - span[ax][0]) * s
         by = (b[ahp] - span[ay][0]) * s
         rw = b[wkey] * s
         rh = b[hkey] * s
         px = ox + bx
         py = (oy - by - rh) if invert else (MARGIN + 16 + by)
-        c.rect(px, py, rw, rh, fill=_SHADES[i % len(_SHADES)], sw=0.9)
+        c.rect(px, py, rw, rh, fill=shade.get(b["id"], _SHADES[0]), sw=0.9)
     # overall dimensions — horizontal below, vertical in the left gutter (rotated)
     c.dim_horizontal(ox, ox + real_w * s, oy + 22, fmt_inches(real_w))
     y0 = (oy - real_h * s) if invert else (MARGIN + 16)
