@@ -270,10 +270,46 @@ Keep it genuinely buildable."""
             ' "care": one paragraph on care and maintenance}\n'
             "Return ONLY the JSON.")
         try:
-            return self.boundary_call(system, user)
+            packet = self.boundary_call(system, user)
         except Exception as exc:  # noqa: BLE001
             self.last_packet_error = f"{type(exc).__name__}: {exc}"
             return {}
+        return self._reconcile_packet(geo, packet, system, user)
+
+    def _reconcile_packet(self, geo, packet: dict, system: str, user: str,
+                          rounds: int = 2) -> dict:
+        """Rewrite any sentence that contradicts the design it describes.
+
+        Gate 1 only proves a number came from the solver, so a packet could open
+        with "3/8in-deep dado joints" above a table reading "Dado Depth 1/4in" and
+        release. The prose audit finds those; this asks for the sentences back,
+        corrected, and keeps the last version that is at least no worse."""
+        from build_assistant.generative.prose_audit import audit_prose
+
+        issues = audit_prose(geo, packet)
+        self.packet_prose_issues = list(issues)
+        for _ in range(rounds):
+            if not issues:
+                break
+            fix = (f"{user}\n\nYour previous draft contradicted the design:\n"
+                   + "\n".join(f"- {i}" for i in issues[:8])
+                   + "\n\nReturn the FULL corrected JSON. Fix only those sentences — "
+                     "keep every other word identical, and never change the design to "
+                     "match a sentence.")
+            try:
+                revised = self.boundary_call(system, fix)
+            except Exception as exc:  # noqa: BLE001
+                self.last_packet_error = f"{type(exc).__name__}: {exc}"
+                break
+            if not revised.get("steps"):
+                break
+            new_issues = audit_prose(geo, revised)
+            if len(new_issues) >= len(issues):     # no progress; keep what we had
+                packet, issues = revised, new_issues
+                break
+            packet, issues = revised, new_issues
+        self.packet_prose_issues = list(issues)
+        return packet
 
     def boundary_call(self, system, user):
         raw = self._llm(system, user, 8000)

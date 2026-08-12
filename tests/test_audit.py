@@ -129,3 +129,60 @@ def test_audit_runs_inside_the_design_loop():
     assert error.startswith("PlacementError"), error
     assert "outside the object" in error
     print("  [ok] the design loop receives the placement defect for repair")
+
+
+def test_prose_that_contradicts_the_design_is_caught():
+    """Gate 1 proves a number came from the solver. It cannot tell that "3/8in-deep
+    dado" is the wrong solver value for a design whose dados are 1/4in."""
+    from build_assistant.generative.prose_audit import audit_prose
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in spec["parts"]:
+        if p["id"] in ("A", "B"):
+            p["joint_type"] = "dado"
+            p["joint_depth_expr"] = "0.25"
+    geo = compile_design(DesignIR.from_dict(spec))
+
+    bad = {"governing_note": 'Cut 3/4" wide x 3/8" deep dado joints in each side.',
+           "steps": [{"title": "Rout", "detail": 'Set the router 1/4" deep for the dado.'},
+                     {"title": "Drill", "detail": 'Bore a pilot hole 1" deep for the dado screw.'}]}
+    issues = audit_prose(geo, bad)
+    assert len(issues) == 1, issues
+    assert "3/8" in issues[0] and '1/4"' in issues[0], issues[0]
+    print("  [ok] a sentence quoting the wrong joinery depth is caught, correct value named")
+
+
+def test_prose_audit_leaves_correct_packets_alone():
+    from build_assistant.generative.prose_audit import audit_prose
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in spec["parts"]:
+        if p["id"] in ("A", "B"):
+            p["joint_type"] = "dado"
+            p["joint_depth_expr"] = "0.25"
+    geo = compile_design(DesignIR.from_dict(spec))
+    good = {"governing_note": 'Cut the dado 1/4" deep.',
+            "care": "Wipe with a damp cloth.",
+            "steps": [{"title": "Rout", "detail": 'Dado depth is 1/4"; test in scrap.'}]}
+    assert audit_prose(geo, good) == []
+    print("  [ok] a packet that agrees with its design raises nothing")
+
+
+def test_packet_reconciliation_rewrites_the_offending_sentence():
+    """The loop must repair the prose, not merely report it."""
+    from webapp.designer import DesignAgent
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in spec["parts"]:
+        if p["id"] in ("A", "B"):
+            p["joint_type"] = "dado"
+            p["joint_depth_expr"] = "0.25"
+    geo = compile_design(DesignIR.from_dict(spec))
+
+    drafts = [
+        {"steps": [{"title": "Rout", "detail": 'Cut the dado 3/8" deep.'}]},
+        {"steps": [{"title": "Rout", "detail": 'Cut the dado 1/4" deep.'}]},
+    ]
+    agent = DesignAgent()
+    agent.boundary_call = lambda system, user: drafts.pop(0)     # stub the model
+    fixed = agent._reconcile_packet(geo, drafts.pop(0), "sys", "user")
+    assert '1/4"' in fixed["steps"][0]["detail"], fixed
+    assert agent.packet_prose_issues == []
+    print("  [ok] the packet loop rewrites prose that contradicts the design")
