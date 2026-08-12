@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 import time
 import uuid
 
@@ -49,13 +50,33 @@ def _now() -> float:
 
 
 class Store:
+    """One connection per thread.
+
+    The server is threaded and generation runs on a worker, so a single shared
+    connection had several requests interleaving inside one transaction —
+    "cannot start a transaction within a transaction", a 500 to whoever lost the
+    race. A connection per thread lets SQLite do what it is good at: many readers,
+    writers serialised behind a busy timeout, in WAL so a long write does not block
+    the reads a progress screen is making."""
+
     def __init__(self, path: str = DB_PATH):
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         self.path = path
-        self._c = sqlite3.connect(path, check_same_thread=False)
-        self._c.row_factory = sqlite3.Row
-        self._c.executescript(_SCHEMA)
-        self._c.commit()
+        self._local = threading.local()
+        conn = self._c
+        conn.executescript(_SCHEMA)
+        conn.commit()
+
+    @property
+    def _c(self) -> sqlite3.Connection:
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = sqlite3.connect(self.path, timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=30000")
+            self._local.conn = conn
+        return conn
 
     # ---- projects ----
     def create_project(self, node: str | None, title: str) -> str:

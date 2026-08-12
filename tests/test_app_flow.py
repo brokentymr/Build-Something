@@ -135,3 +135,34 @@ def test_a_project_with_no_resolved_node_is_the_agents_to_build():
     job = store.job(pid)
     assert job and job["status"] in ("running", "failed", "done")
     print("  [ok] an unresolved project is designed rather than crashing generate")
+
+
+def test_the_store_survives_concurrent_use():
+    """The server is threaded and generation runs on a worker. One shared
+    connection had requests interleaving inside a transaction — "cannot start a
+    transaction within a transaction", a 500 to whoever lost the race."""
+    import threading
+    store = _store("out/_concurrent.db")
+    pids = [store.create_project(None, f"p{i}") for i in range(4)]
+    errors = []
+
+    def hammer(pid, n):
+        try:
+            for i in range(12):
+                store.set_description(pid, f"description {n}-{i}")
+                store.add_answers(pid, {f"f{i}": i}, "turn")
+                store.start_job(pid, 7)
+                store.set_job_phase(pid, "designing", f"round {i}")
+                store.answers(pid)
+                store.job(pid)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{type(exc).__name__}: {exc}")
+
+    threads = [threading.Thread(target=hammer, args=(pid, n))
+               for n, pid in enumerate(pids)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors, errors[:3]
+    print("  [ok] the store takes concurrent readers and writers without collapsing")
