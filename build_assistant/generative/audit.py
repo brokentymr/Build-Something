@@ -142,8 +142,18 @@ def audit_placement(geo: Geometry) -> list[str]:
                 lo, ext = AXES[axis_i]
                 thinner, thicker = (a, b) if a[ext] <= b[ext] else (b, a)
                 spanner, obstacle = (a, b) if a[ext] >= b[ext] else (b, a)
+                # "Split it into bays" only makes sense when the obstacle really
+                # divides the part: it must sit inside the span AND block the whole
+                # of it on the other two axes. Without that second test a top panel
+                # capping two sides reads as a shelf crossing a divider, and the
+                # repair loop is sent to split the top in half.
+                divides = all(
+                    obstacle[o_lo] <= spanner[o_lo] + TOL
+                    and obstacle[o_lo] + obstacle[o_ext] >= spanner[o_lo] + spanner[o_ext] - TOL
+                    for o_lo, o_ext in AXES if o_lo != lo)
                 inside = (obstacle[lo] > spanner[lo] + TOL
-                          and obstacle[lo] + obstacle[ext] < spanner[lo] + spanner[ext] - TOL)
+                          and obstacle[lo] + obstacle[ext] < spanner[lo] + spanner[ext] - TOL
+                          and divides)
                 if inside:
                     # A shelf running straight through a centre divider cannot be
                     # cured by shortening it — that empties one bay. It has to

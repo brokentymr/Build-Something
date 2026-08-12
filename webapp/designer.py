@@ -332,6 +332,12 @@ Keep it genuinely buildable."""
         trail.append({"round": 0, "action": "synthesize", "error": error,
                       "parts": geo.piece_count() if geo else 0})
 
+        # A repair rewrites the whole model, so a round that fixes an architectural
+        # note can undo a placement fix from the round before. A live run went clean
+        # at round 2 and broke again at round 3, then spent its budget getting back.
+        # Keep the best model seen and never end worse than it.
+        best = (self._defect_count(geo, error), ir, geo, error)
+
         for r in range(1, max_rounds + 1):
             crit = self.critique(ir, geo, error)
             issues = crit.get("issues", [])
@@ -354,6 +360,14 @@ Keep it genuinely buildable."""
             geo, error = self._try_compile(ir)
             trail.append({"round": r, "action": "repair", "error": error,
                           "parts": geo.piece_count() if geo else 0})
+            score = self._defect_count(geo, error)
+            if score < best[0]:
+                best = (score, ir, geo, error)
+
+        if self._defect_count(geo, error) > best[0]:
+            trail.append({"round": "final", "action": "revert_to_best",
+                          "error": best[3], "parts": best[2].piece_count() if best[2] else 0})
+            _, ir, geo, error = best
 
         converged = geo is not None and not error
         if geo is not None and error.startswith("PlacementError"):
@@ -366,6 +380,18 @@ Keep it genuinely buildable."""
                     ir.warnings.append(note)
         return DesignResult(ir, geo, converged, trail,
                             "" if converged else (error or "did not fully converge in budget"))
+
+    @staticmethod
+    def _defect_count(geo, error: str) -> int:
+        """How bad a round is, for keeping the best. Not building at all is worst."""
+        if geo is None:
+            return 10_000
+        if not error:
+            return 0
+        if error.startswith("PlacementError"):
+            from build_assistant.generative.audit import audit_placement
+            return len(audit_placement(geo))
+        return 1_000                                  # invariant violation
 
     def _try_compile(self, ir: DesignIR):
         """Build the geometry (parts/numbers) even if an invariant fails, so the

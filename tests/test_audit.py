@@ -186,3 +186,47 @@ def test_packet_reconciliation_rewrites_the_offending_sentence():
     assert '1/4"' in fixed["steps"][0]["detail"], fixed
     assert agent.packet_prose_issues == []
     print("  [ok] the packet loop rewrites prose that contradicts the design")
+
+
+def test_top_capping_two_sides_is_not_told_to_split_into_bays():
+    """A live run stalled here: a top panel spans both side panels, so each side
+    sits inside its span — but a top is not divided into bays by the walls it rests
+    on. The wrong remedy sent the repair loop in circles."""
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    spec["parts"].append(
+        {"id": "TOP", "name": "top panel", "element": "case",
+         "material_role": "carcass", "length_expr": "width",
+         "width_expr": "depth", "qty_expr": "1",
+         "box_x": "0", "box_y": "0", "box_z": "height - carcass_t/2",   # sunk into the sides
+         "box_w": "width", "box_d": "depth - back_t", "box_h": "carcass_t"})
+    issues = audit_placement(compile_design(DesignIR.from_dict(spec)))
+    bays = [i for i in issues if "one piece per bay" in i]
+    assert not bays, f"a top panel must never be told to split into bays: {bays}"
+    assert any("pass through each other" in i for i in issues), issues
+    print("  [ok] a top sunk into its sides is a collision, not a bay problem")
+
+
+def test_loop_never_ends_worse_than_the_best_round_it_found():
+    """A repair rewrites the whole model, so a later round can undo an earlier fix.
+    A live run went clean at round 2, broke at round 3, and spent the rest of its
+    budget getting back. The loop keeps the best model it saw."""
+    from webapp.designer import DesignAgent
+    clean = dict(_CASE)
+    broken = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in broken["parts"]:
+        if p["id"] == "C":
+            p.update({"qty_expr": "6", "step_x": "15.65", "step_z": "0"})
+
+    agent = DesignAgent()
+    agent.synthesize = lambda *a, **k: DesignIR.from_dict(broken)
+    agent.critique = lambda *a, **k: {"issues": [{"severity": "high", "what": "x"}],
+                                      "buildable": True}
+    drafts = [DesignIR.from_dict(clean), DesignIR.from_dict(broken)]   # good, then a regression
+    agent.repair = lambda *a, **k: drafts.pop(0)
+
+    res = agent.design("bookcase", {}, max_rounds=2)
+    assert res.geo is not None
+    from build_assistant.generative.audit import audit_placement
+    assert audit_placement(res.geo) == [], "the loop shipped the regressed model"
+    assert any(t["action"] == "revert_to_best" for t in res.rounds), res.rounds
+    print("  [ok] the loop keeps the best model it found, not the last one")
