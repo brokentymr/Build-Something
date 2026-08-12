@@ -34,8 +34,10 @@ MAX_ROUNDS = int(os.environ.get("DESIGN_MAX_ROUNDS", "5"))
 
 
 def _fmt(v: float) -> str:
+    """Quoted to 1/32, matching the cut list — prose that says 29-61/64" while the
+    table it refers to says 29-31/32" reads as two different parts."""
     from build_assistant.drawing.primitives import fmt_inches
-    return fmt_inches(v)
+    return fmt_inches(v, 32)
 
 
 @dataclass

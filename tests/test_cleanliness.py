@@ -57,6 +57,30 @@ def test_internal_part_ids_never_reach_the_page():
     print("  [ok] internal part ids never reach reader-facing text")
 
 
+def test_short_ids_and_material_ids_never_reach_the_page():
+    """The tolerance table once read "Dado depth in S1 and S2", and a step cited
+    "3/4in birch plywood (ply_075_birch)". Short ids and material ids leak too."""
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p, new in zip(spec["parts"], ("S1", "S2", "SH1", "BACK")):
+        p["id"] = new
+    geo = compile_design(DesignIR.from_dict(spec))
+    packet = {
+        "title": "T", "subtitle": "s", "callouts": [],
+        "governing_note": "Dado depth in S1 and S2 governs SH1.",
+        "tolerances": [{"check": "Dado depth in S1 and S2", "tolerance": "1/64"}],
+        "steps": [{"phase": "Cut", "title": "Cut SH1",
+                   "detail": "Cut SH1 from ply_075_structural stock; seat into S1.",
+                   "check": "BACK sits flush"}],
+        "care": "Wipe S1 clean.",
+    }
+    text = re.sub(r"<svg.*?</svg>", " ", "".join(
+        b.html for b in build_blocks_generic(geo, plan_nesting(geo), packet)), flags=re.S)
+    text = re.sub(r"<[^>]+>", " ", text)
+    for leak in ("S1", "S2", "SH1", "BACK", "ply_075_structural"):
+        assert not re.search(rf"\b{leak}\b", text), f"{leak!r} leaked into the page"
+    print("  [ok] short part ids and material ids are resolved to real names")
+
+
 def test_human_swaps_ids_for_names():
     geo = compile_design(DesignIR.from_dict({
         **_CASE,

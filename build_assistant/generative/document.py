@@ -66,14 +66,48 @@ def _human(text: str, geo: Geometry) -> str:
             text = re.sub(rf"\b{re.escape(p.id)}\b", p.name.lower(), text)
     if geo.finish_id and geo.finish_id in text:
         text = text.replace(geo.finish_id, _finish_name(geo).lower())
+    # material ids leak the same way: "3/4" birch plywood (ply_075_birch)"
+    from ..catalog.materials import get_material
+    for mid in sorted({p.material_id for p in geo.parts}, key=len, reverse=True):
+        if mid and mid in text:
+            try:
+                text = text.replace(mid, get_material(mid).display_name)
+            except Exception:  # noqa: BLE001 — unknown id stays as written
+                pass
+    text = re.sub(r"\s*\(\s*\)", "", text)          # an emptied parenthetical
     # The agent writes "BACK panel", and the name it stands for is already
-    # "Back panel" — substituting leaves "back panel panel". Collapse the stutter.
-    return _dedupe_words(text)
+    # "Back panel" — substituting leaves "back panel panel". Collapse the stutter,
+    # then the longer form of it: "side panels S1 and S2" becomes "side panels left
+    # side panel and right side panel", which is correct and unreadable.
+    text = _dedupe_words(text)
+    return _collapse_lead_in(text, [p.name.lower() for p in geo.parts])
 
 
 def _dedupe_words(text: str) -> str:
     """Drop an immediately repeated word ("panel panel" -> "panel")."""
     return re.sub(r"\b(\w+)(\s+\1)\b(?!\w)", r"\1", text, flags=re.IGNORECASE)
+
+
+def _collapse_lead_in(text: str, names: list[str]) -> str:
+    """Drop a lead-in phrase the substituted name already says.
+
+    "in side panels left side panel" -> "in left side panel": the words before the
+    name are, singularised, a tail of the name itself."""
+    for name in sorted(set(n for n in names if n), key=len, reverse=True):
+        pattern = re.compile(r"((?:\w+\s+){1,3})" + re.escape(name), re.IGNORECASE)
+
+        def repl(m, name=name):
+            lead = m.group(1).split()
+            for k in range(len(lead), 0, -1):
+                candidate = " ".join(lead[-k:])
+                singular = re.sub(r"s\b", "", candidate, flags=re.IGNORECASE)
+                if singular and name.endswith(singular.lower()):
+                    kept = " ".join(lead[:-k])
+                    return (kept + " " if kept else "") + name
+            return m.group(0)
+
+        text = pattern.sub(repl, text)
+    return text
 
 
 def _stock_diagram(geo: Geometry, nest, mid: str, i: int) -> Canvas:
