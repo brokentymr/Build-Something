@@ -374,9 +374,14 @@ def joint_detail(geo: Geometry, contact: dict, tag: str) -> Canvas | None:
                title=f"Detail {tag} — item {_it.get(a['id'], a['id'])} to "
                      f"item {_it.get(b['id'], b['id'])}, magnified{typ}")
     # Each drawn member gets a thickness dimension in a column to its left, and the
-    # labels hang further left still. Reserve that gutter up front rather than
-    # letting the first column run off the page.
-    dim_gutter = 68.0
+    # label hangs further left still, right-anchored. Size that gutter from the
+    # actual labels: a constant tuned for 3/4" put 1-1/2" off the canvas, and Gate 3
+    # held real builds back for it.
+    from ..drawing.primitives import FONT
+    thick_labels = [fmt_inches(m.nominal_thickness)
+                    for m in (_mat_of(geo, a["id"]), _mat_of(geo, b["id"])) if m]
+    widest = max((len(t) for t in thick_labels), default=4) * FONT * 0.6
+    dim_gutter = max(68.0, widest + 26.0 + 14.0)   # label + second column + air
     s = min((LABEL_X - dim_gutter - 24) / (hmax - hmin), (hgt - 2 * MARGIN) / (vmax - vmin))
     ox, oy = dim_gutter, hgt - MARGIN
 
@@ -473,7 +478,9 @@ def joint_detail(geo: Geometry, contact: dict, tag: str) -> Canvas | None:
         # drawn hard against the left margin pushed its column off the canvas, so
         # the stack is clamped to stay on the page.
         if mat and bh > 6:
-            dim_x = max(34.0, x0 - 10 - i * 26)
+            # never left of the gutter the labels were sized to fit
+            dim_x = max(dim_gutter - 26.0 * (len(parts_drawn) - 1 - i),
+                        x0 - 10 - i * 26)
             c.dim_vertical(y0, y0 + bh, dim_x,
                            fmt_inches(mat.nominal_thickness))
     if housing:

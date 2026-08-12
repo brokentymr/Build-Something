@@ -293,3 +293,36 @@ def test_long_section_reason_stays_on_the_canvas():
     assert not c.overflowing_labels(), c.overflowing_labels()
     assert not c.geometry_overflow()
     print("  [ok] a long section reason is fitted to the canvas, not run off it")
+
+
+def test_thick_stock_thickness_labels_stay_on_the_canvas():
+    """Gate 3 held two live builds back for this: the gutter reserved for the
+    thickness dimensions was a constant tuned for 3/4", and 1-1/2" ran off."""
+    frame = {
+        "name": "Frame", "summary": "t", "node_kind": "frame", "finish_id": "none",
+        "params": [{"id": "len", "label": "L", "value": 72},
+                   {"id": "ht", "label": "H", "value": 34}],
+        "materials": [{"role": "stud", "material_id": "lumber_2x4"}],
+        "elements": [{"id": "f", "kind": "frame", "length_expr": "len",
+                      "width_expr": "3.5", "height_expr": "ht", "faces": []}],
+        "parts": [
+            {"id": "A", "name": "leg", "element": "f", "material_role": "stud",
+             "length_expr": "ht", "width_expr": "3.5", "qty_expr": "2",
+             "box_x": "0", "box_y": "0", "box_z": "0", "box_w": "stud_t",
+             "box_d": "3.5", "box_h": "ht", "step_x": "len - stud_t"},
+            {"id": "B", "name": "rail", "element": "f", "material_role": "stud",
+             "length_expr": "len - 2*stud_t", "width_expr": "3.5", "qty_expr": "1",
+             "box_x": "stud_t", "box_y": "0", "box_z": "ht - 3.5",
+             "box_w": "len - 2*stud_t", "box_d": "3.5", "box_h": "stud_t"},
+        ],
+        "invariants": [], "derived": [], "operations": ["crosscut_panels"],
+    }
+    geo = compile_design(DesignIR.from_dict(frame))
+    contacts = find_contacts(geo)
+    assert contacts, "expected a contact between leg and rail"
+    for i, ct in enumerate(contacts[:3]):
+        c = joint_detail(geo, ct, f"D{i+1}")
+        assert not c.overflowing_labels(), (f"D{i+1}", c.overflowing_labels())
+        assert not c.geometry_overflow()
+    print(f"  [ok] 1-1/2in stock keeps its dimensions on the canvas "
+          f"({len(contacts[:3])} joint details)")
