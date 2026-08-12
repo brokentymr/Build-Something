@@ -168,6 +168,67 @@ class Canvas:
                 self.line(x + x1, y + y1, x + x2, y + y2, 0.4, color="#b0a99a")
             k += spacing
 
+    # ---- material-aware section poché -------------------------------------
+    def material_hatch(self, x, y, w, h, category: str, spacing=6.0):
+        """Section poché keyed to the material, the way a shop drawing reads.
+
+        sheet_good  -> ply laminations (lines along the panel's long axis)
+        lumber/hardwood -> 45-degree section hatch
+        cement_board -> stipple
+        anything else -> light 45-degree hatch
+        """
+        if w <= 0 or h <= 0:
+            return
+        if category == "sheet_good":
+            # plies run parallel to the face; draw across the SHORT dimension
+            if h <= w:
+                n = max(2, min(7, int(h / 1.6)))
+                for i in range(1, n):
+                    yy = y + h * i / n
+                    self.line(x + 0.5, yy, x + w - 0.5, yy, 0.3, color="#b5ad9c")
+            else:
+                n = max(2, min(7, int(w / 1.6)))
+                for i in range(1, n):
+                    xx = x + w * i / n
+                    self.line(xx, y + 0.5, xx, y + h - 0.5, 0.3, color="#b5ad9c")
+        elif category == "cement_board":
+            step = max(3.0, spacing * 0.7)
+            j = 0
+            yy = y + step / 2
+            while yy < y + h:
+                xx = x + (step / 2 if j % 2 else step)
+                while xx < x + w:
+                    self.line(xx, yy, xx + 0.9, yy, 0.7, color="#9d968a")
+                    xx += step
+                yy += step
+                j += 1
+        else:
+            self.section_hatch(x, y, w, h, spacing=spacing)
+
+    def elbow_leader(self, px, py, lx, ly, label: str, side="right", size=None):
+        """Leader with a dot at the target, an elbow, and a label on a shelf line."""
+        if label is None:
+            raise LabelError("elbow_leader requires an explicit label (Lesson 7)")
+        fs = size or (FONT - 1.5)
+        mx = lx - 12 if side == "right" else lx + 12
+        self.line(px, py, mx, ly, 0.55, color="#5f594e")
+        self.line(mx, ly, lx, ly, 0.55, color="#5f594e")
+        self._els.append(f'<circle cx="{px:.2f}" cy="{py:.2f}" r="1.7" fill="#3a352c"/>')
+        anchor = "start" if side == "right" else "end"
+        off = 3 if side == "right" else -3
+        self.text(lx + off, ly + fs * 0.35, label, size=fs, anchor=anchor, color="#3a352c")
+
+    def detail_bubble(self, x, y, r, tag: str):
+        """Circle marking a detail region, with its reference tag."""
+        self._els.append(
+            f'<circle cx="{x:.2f}" cy="{y:.2f}" r="{r:.2f}" fill="none" '
+            f'stroke="#a4632e" stroke-width="1" stroke-dasharray="4 3"/>')
+        self._grow(x - r, y - r); self._grow(x + r, y + r)
+        self.text(x, y - r - 4, tag, size=FONT - 2, weight="bold", color="#a4632e")
+
+    def centerline(self, x1, y1, x2, y2):
+        self.line(x1, y1, x2, y2, 0.5, dash="7 3 2 3", color="#a4632e")
+
     def ground_hatch(self, x, y, w, n=8):
         """Ground/hatch symbol along a baseline."""
         step = w / n

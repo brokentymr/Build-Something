@@ -112,14 +112,18 @@ def exploded(geo: Geometry) -> Canvas:
     raw = [isopt(x, y, z, 1.0, 0, 0) for x, y, z in pts]
     minsx = min(p[0] for p in raw); maxsx = max(p[0] for p in raw)
     minsy = min(p[1] for p in raw); maxsy = max(p[1] for p in raw)
-    hgt = 380.0
-    s = min((W - 2 * MARGIN) / (maxsx - minsx), (hgt - 2 * MARGIN) / (maxsy - minsy))
-    oxp = MARGIN - minsx * s
+    hgt = 400.0
+    # Geometry sits to the RIGHT of a legend gutter; each part gets ONE leader-
+    # labelled legend entry (not a tag per instance), so labels never pile up.
+    gutter = 150.0
+    s = min((W - gutter - 30.0) / (maxsx - minsx), (hgt - 2 * MARGIN) / (maxsy - minsy))
+    oxp = gutter + 14.0 - minsx * s
     oyp = MARGIN - minsy * s
     c = Canvas(W, hgt, title="Exploded assembly", stage="as_finished")
 
     # draw back-to-front (sort by depth key x+y+z ascending so nearer drawn last)
     order = sorted(placed, key=lambda b: (b["x"] + b["ox"] + b["y"] + b["oy"] + b["z"] + b["oz"]))
+    anchors: dict[str, tuple] = {}
     for i, b in enumerate(order):
         x, y, z = b["x"] + b["ox"], b["y"] + b["oy"], b["z"] + b["oz"]
         w, d, h = b["w"], b["d"], b["h"]
@@ -131,8 +135,23 @@ def exploded(geo: Geometry) -> Canvas:
         c.polygon(front, fill=sh, sw=0.8)
         c.polygon(left, fill=_darken(sh, 0.9), sw=0.8)
         c.polygon(top, fill=_lighten(sh), sw=0.8)
-        mid = P(x + w / 2, y + d / 2, z + h)
-        c.text(mid[0], mid[1] - 2, b["id"], size=9, weight="bold")
+        anchors.setdefault(b["id"], P(x + w / 2, y + d / 2, z + h))
+
+    # legend: one row per part, ordered by its target height so leaders can't cross
+    names = {p.id: p.name for p in geo.parts}
+    qty = {p.id: p.qty for p in geo.parts}
+    rows = sorted(anchors.items(), key=lambda kv: kv[1][1])
+    maxw = gutter - 22.0
+    labels = [f"{pid} · {names.get(pid, '')}" + (f" ×{qty[pid]}" if qty.get(pid, 1) > 1 else "")
+              for pid, _ in rows]
+    longest = max((len(t) for t in labels), default=1)
+    fs = max(6.0, min(8.6, maxw / (longest * 0.58)))
+    cap = max(8, int(maxw / (fs * 0.58)))
+    top_y, bot_y = MARGIN - 10, hgt - MARGIN + 10
+    for i, ((pid, (px, py)), txt) in enumerate(zip(rows, labels)):
+        ly = top_y + (bot_y - top_y) * (i + 0.5) / max(1, len(rows))
+        t = txt if len(txt) <= cap else txt[: max(1, cap - 1)] + "…"
+        c.elbow_leader(px, py, gutter - 8.0, ly, t, side="left", size=fs)
     return c
 
 

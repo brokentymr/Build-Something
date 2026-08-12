@@ -15,6 +15,7 @@ from ..drawing.drawings import nesting_diagram
 from ..document.content import Block, _table, _h, _e, _callout
 from ..parts.joinery import tool_schedule
 from . import draw as gdraw
+from . import detail as gdetail
 
 
 def _svg(c: Canvas) -> str:
@@ -22,11 +23,21 @@ def _svg(c: Canvas) -> str:
            f'<span class="stage">[{c.stage}]</span></div></div>'
 
 
+def _stock_diagram(geo: Geometry, nest, mid: str, i: int) -> Canvas:
+    """Sheet nesting for panels; a linear cut run for long board stock."""
+    from ..catalog.materials import get_material
+    mat = get_material(mid)
+    long_stock = mat.category in ("lumber", "hardwood") or \
+        max(nest.sheet_w, nest.sheet_h) > 3.2 * min(nest.sheet_w, nest.sheet_h)
+    return gdetail.board_layout(nest, i) if long_stock else nesting_diagram(nest, i)
+
+
 def generic_drawings(geo: Geometry, plan: NestingPlan) -> dict:
     d = dict(gdraw.hero_drawings(geo))
+    d.update(gdetail.detail_drawings(geo))
     for mid, nest in plan.nests.items():
         for i in range(1, nest.sheet_count() + 1):
-            d[f"nest_{mid}_{i}"] = nesting_diagram(nest, i)
+            d[f"nest_{mid}_{i}"] = _stock_diagram(geo, nest, mid, i)
     return d
 
 
@@ -71,6 +82,22 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
                                  kinds.get(c.get("kind", "info"), "info")) for c in callouts[:3])
         B("crit", "prose", f'<div class="callouts" style="border:none;padding-top:0">{cells}</div>')
 
+    # ---------- SECTIONS + JOINT DETAILS + PREDRILLS ----------
+    details = gdetail.detail_drawings(geo)
+    sections = [k for k in ("section_aa", "section_bb") if k in details]
+    if sections:
+        B("h_sect", "header", _h("Assembly sections", "how it stacks up"))
+        for k in sections:
+            B(f"fig_{k}", "figure", _svg(details[k]))
+    joints = [k for k in details if k.startswith("joint_")]
+    if joints:
+        B("h_joint", "header", _h("Joint details", "magnified · with fixings"))
+        for k in joints:
+            B(f"fig_{k}", "figure", _svg(details[k]))
+    if "predrill" in details:
+        B("h_pre", "header", _h("Pilot holes and drivers", "drill before you drive"))
+        B("fig_predrill", "figure", _svg(details["predrill"]))
+
     # ---------- BILL OF MATERIALS ----------
     B("h_bom", "header", _h("Bill of materials"))
     bom = []
@@ -99,10 +126,10 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
     B("cut", "table", _table(["ID", "Part", "As-cut", "Qty", "Material", "Joint"], cut))
 
     # ---------- SHEET LAYOUTS ----------
-    B("h_sheet", "header", _h("Sheet layouts, yield and waste"))
+    B("h_sheet", "header", _h("Stock layouts, yield and waste"))
     for mid, nest in plan.nests.items():
         for i in range(1, nest.sheet_count() + 1):
-            B(f"nest_{mid}_{i}", "figure", _svg(nesting_diagram(nest, i)))
+            B(f"nest_{mid}_{i}", "figure", _svg(_stock_diagram(geo, nest, mid, i)))
 
     # ---------- TOLERANCE BUDGET ----------
     tol = packet.get("tolerances") or []
