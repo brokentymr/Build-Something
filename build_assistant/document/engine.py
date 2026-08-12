@@ -20,7 +20,7 @@ import re
 import subprocess
 import tempfile
 
-from .content import Block, build_blocks, REVISION
+from .content import Block, REVISION
 from ..core.model import Geometry
 from ..nesting.plan import NestingPlan
 
@@ -258,33 +258,6 @@ def _render_pages(pages: list[list[Block]], runhead: str = "", footer_left: str 
         )
     out.append("</body></html>")
     return "\n".join(out)
-
-
-def build_document(geo: Geometry, plan: NestingPlan, out_name: str = "coffee_table") -> dict:
-    """Full two-pass build. Returns paths and pagination metadata."""
-    blocks = build_blocks(geo, plan)
-    heights = _measure(blocks)                       # pass 1
-    pages = _paginate(blocks, heights)               # pass 2
-    L = fmt = None
-    try:
-        from ..drawing.primitives import fmt_inches
-        dims = (f"{fmt_inches(geo.elements[0].finished_length.as_finished)} x "
-                f"{fmt_inches(geo.elements[0].finished_width.as_finished)} x "
-                f"{fmt_inches(geo.scalar('overall_height'))}") if geo.elements else ""
-    except Exception:
-        dims = ""
-    kind = geo.structure.get("node_kind", geo.node).replace("_", " ")
-    # str.strip takes a SET of characters, so an empty dims chews the kind itself:
-    # "case good &middot; " came back as "case g". Join only when there is a dims.
-    runhead = f"{kind} &middot; {dims}" if dims else kind
-    html = _render_pages(pages, runhead=runhead,
-                         footer_left=f"{kind} build packet")  # totals resolved here
-    os.makedirs("out", exist_ok=True)
-    html_path = os.path.join("out", f"{out_name}.html")
-    with open(html_path, "w") as fh:
-        fh.write(html)
-    return {"html_path": html_path, "html": html, "pages": pages,
-            "page_count": len(pages), "heights": heights, "blocks": blocks}
 
 
 def render_pdf(html_path: str, pdf_path: str) -> str:

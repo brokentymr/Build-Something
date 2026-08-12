@@ -174,6 +174,12 @@ def build(answers: dict) -> "SolveDraft":
         "backing": [{"name": "slab_underside_reveal", "surface_width": reveal,
                      "backing_width": ring_width}],
         "rib_left_edges": rib_left_edges,
+        "boxes": _placement(
+            deck_len=deck_len, deck_wid=deck_wid, t=t, ring_width=ring_width,
+            rib_left_edges=rib_left_edges, plinth_carcass_h=plinth_carcass_h,
+            carcass_inset=carcass_inset, fp_len=fp_len, fp_wid=fp_wid, L=L, W=W),
+        "node_kind": "coffee_table",
+        "summary": "Micro-cement coffee table: torsion-box slab on a recessed plinth.",
     }
 
     # ---- elements ----------------------------------------------------------
@@ -361,3 +367,46 @@ class SolveDraft:
     joints: tuple
     operations: set
     skins: list
+
+
+def _placement(*, deck_len, deck_wid, t, ring_width, rib_left_edges,
+               plinth_carcass_h, carcass_inset, fp_len, fp_wid, L, W) -> list[dict]:
+    """Where every part sits in the assembled object.
+
+    The solver computes sizes; this says where they go. Without it the drawing set
+    has nothing to project — elevations, sections, joint details and the placement
+    audit all read from here — and a curated node could only ever produce the older,
+    thinner document. Origin is the front-left-bottom corner of the finished piece.
+
+    Boxes are carcass geometry, so the slab decks sit inboard by the finish
+    thickness the skin will add back.
+    """
+    boxes: list[dict] = []
+
+    def add(pid, x, y, z, w, d, h):
+        boxes.append({"id": pid, "x": round(x, 4), "y": round(y, 4), "z": round(z, 4),
+                      "w": round(w, 4), "d": round(d, 4), "h": round(h, 4)})
+
+    # --- plinth: a box of two long walls, two end panels, two platforms -----
+    px, py = carcass_inset, carcass_inset
+    add("F", px, py, 0.0, fp_len, t, plinth_carcass_h)                    # front wall
+    add("F", px, py + fp_wid - t, 0.0, fp_len, t, plinth_carcass_h)       # back wall
+    add("G", px, py + t, 0.0, t, fp_wid - 2 * t, plinth_carcass_h)        # left end
+    add("G", px + fp_len - t, py + t, 0.0, t, fp_wid - 2 * t, plinth_carcass_h)
+    add("H", px + t, py + t, 0.0, fp_len - 2 * t, fp_wid - 2 * t, t)      # floor platform
+    add("H", px + t, py + t, plinth_carcass_h - t, fp_len - 2 * t, fp_wid - 2 * t, t)
+
+    # --- slab: bottom deck, core ring and ribs, top deck --------------------
+    sx, sy = (L - deck_len) / 2, (W - deck_wid) / 2
+    z0 = plinth_carcass_h
+    add("B", sx, sy, z0, deck_len, deck_wid, t)                           # bottom deck
+    core_z = z0 + t
+    add("C", sx, sy, core_z, deck_len, ring_width, t)                     # long rail, front
+    add("C", sx, sy + deck_wid - ring_width, core_z, deck_len, ring_width, t)
+    inner_d = deck_wid - 2 * ring_width
+    add("D", sx, sy + ring_width, core_z, ring_width, inner_d, t)         # end rail, left
+    add("D", sx + deck_len - ring_width, sy + ring_width, core_z, ring_width, inner_d, t)
+    for edge in rib_left_edges:
+        add("E", sx + edge, sy + ring_width, core_z, ring_width, inner_d, t)
+    add("A", sx, sy, core_z + t, deck_len, deck_wid, t)                   # top deck
+    return boxes

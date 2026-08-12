@@ -52,12 +52,17 @@ def main(argv: list[str]) -> int:
         return 0
 
     # ---- Phases 4-6: drawings + document + gates ----
-    from build_assistant.document.engine import build_document, render_pdf
+    from build_assistant.document.engine import render_pdf
+    from build_assistant.document.curated_packet import curated_packet
+    from build_assistant.generative.document import (
+        build_generic_document, generic_drawings)
     from build_assistant.gates.gates import run_all_gates, all_passed
     print("\nBuilding document (two-pass layout via Chromium)...")
-    doc = build_document(geo, plan)
+    doc = build_generic_document(geo, plan, curated_packet(geo, plan),
+                                 out_name='coffee_table')
     print(f"Pages             : {doc['page_count']}")
-    results = run_all_gates(geo, plan, doc["html_path"], doc["html"])
+    results = run_all_gates(geo, plan, doc["html_path"], doc["html"],
+                            drawings=generic_drawings(geo, plan))
     print("\nRelease gates:")
     for r in results:
         print(f"  [{'PASS' if r.passed else 'FAIL'}] {r.name}: {r.detail}")

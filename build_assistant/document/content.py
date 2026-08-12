@@ -13,9 +13,8 @@ from dataclasses import dataclass
 from ..core.model import Geometry
 from ..nesting.plan import NestingPlan
 from ..parts.joinery import tool_schedule, fastener_bom
-from ..drawing.drawings import all_drawings
 from ..drawing.primitives import fmt_inches
-from ..build_mode.sequence import build_sequence, Step
+from ..build_mode.sequence import Step
 
 REVISION = "A"
 
@@ -29,94 +28,7 @@ class Block:
 
 def _svg(canvas) -> str:
     return f'<div class="fig">{canvas.render()}<div class="figcap">{_e(canvas.title)} '\
-           f'<span class="stage">[{canvas.stage}]</span></div></div>'
-
-
-def build_blocks(geo: Geometry, plan: NestingPlan) -> list[Block]:
-    draw = all_drawings(geo, plan)
-    steps = build_sequence(geo, plan)
-    blocks: list[Block] = []
-
-    def B(bid, kind, html):
-        blocks.append(Block(bid, kind, html))
-
-    # ---- COVER ----
-    B("cover", "cover", _cover(geo, draw))
-
-    # ---- DESIGN SPECIFICATION ----
-    B("h_spec", "header", _h("Design specification"))
-    B("spec", "table", _spec_table(geo))
-
-    # ---- ALLOWANCE ----
-    B("h_allow", "header", _h("The allowance layer"))
-    B("allow_prose", "prose", _allowance_prose(geo))
-    B("allow_fig", "figure", _svg(draw["allowance_section"]))
-
-    # ---- SUB-ASSEMBLY DRAWINGS ----
-    B("h_draw", "header", _h("Sub-assembly drawings"))
-    for k in ("plan", "front_elevation", "side_elevation", "core_layout"):
-        B(f"fig_{k}", "figure", _svg(draw[k]))
-
-    # ---- CRITICAL ASSEMBLY DETAILS (stage-dependent) ----
-    B("h_stage", "header", _h("Critical detail — the plinth reads two heights"))
-    B("stage_prose", "prose", _stage_prose(geo))
-    B("fig_pcut", "figure", _svg(draw["plinth_as_cut"]))
-    B("fig_pfin", "figure", _svg(draw["plinth_as_finished"]))
-
-    # ---- BILL OF MATERIALS ----
-    B("h_bom", "header", _h("Bill of materials"))
-    B("bom", "table", _bom_table(geo, plan))
-
-    # ---- TOOL & BIT SCHEDULE ----
-    B("h_tool", "header", _h("Tool and bit schedule"))
-    B("tool", "table", _tool_table(geo))
-    B("fig_fast", "figure", _svg(draw["fastener_spacing"]))
-
-    # ---- CUT LISTS ----
-    B("h_cut", "header", _h("Cut lists (quoted as-cut)"))
-    B("cut", "table", _cut_table(geo))
-
-    # ---- SHEET LAYOUTS ----
-    B("h_sheet", "header", _h("Sheet layouts, yield and waste"))
-    for mid, nest in plan.nests.items():
-        for i in range(1, nest.sheet_count() + 1):
-            B(f"nest_{mid}_{i}", "figure", _svg(draw[f"nest_{mid}_{i}"]))
-    B("waste", "prose", _waste_prose(plan))
-
-    # ---- BUILD SEQUENCE ----
-    B("h_seq", "header", _h("Phased build sequence"))
-    for st in steps:
-        B(f"step_{st.n}", "step", _step_block(st))
-
-    # ---- CURE SCHEDULE ----
-    B("h_cure", "header", _h("Cure schedule"))
-    B("cure", "table", _cure_table())
-
-    # ---- QC CHECKLIST ----
-    B("h_qc", "header", _h("Final QC checklist"))
-    B("qc", "table", _qc_table(geo))
-
-    # ---- TROUBLESHOOTING ----
-    B("h_ts", "header", _h("Troubleshooting"))
-    B("ts", "table", _troubleshooting_table())
-
-    # ---- CARE ----
-    B("h_care", "header", _h("Care and maintenance"))
-    B("care", "prose", _care_prose())
-
-    # ---- DESIGN RECORD ----
-    B("h_rec", "header", _h("Design record — every answer"))
-    B("rec", "table", _record_table(geo))
-
-    # ---- DERIVED, NOT ASKED ----
-    B("h_der", "header", _h("Derived, not asked"))
-    B("der", "table", _derived_table(geo))
-
-    # ---- CORRECTION LOG ----
-    B("h_corr", "header", _h("Correction log"))
-    B("corr", "table", _correction_table())
-
-    return blocks
+           f'<span class="stage">[{canvas.stage.replace("_", " ")}]</span></div></div>'
 
 
 # --------------------------------------------------------------------------
@@ -235,7 +147,10 @@ def _bom_table(geo: Geometry, plan: NestingPlan) -> str:
 
 def _tool_table(geo: Geometry) -> str:
     ops = geo.structure["operations"]
-    rows = [[t.tool, t.setting, t.justified_by] for t in tool_schedule(ops)]
+    # The operation is an id in the model and an instruction on the page: this
+    # column shipped reading "drill_pilot_countersink" to a person holding a drill.
+    rows = [[t.tool, t.setting, t.justified_by.replace("_", " ")]
+            for t in tool_schedule(ops)]
     return _table(["Tool / bit", "Setting", "Required by operation"], rows)
 
 

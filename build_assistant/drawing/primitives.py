@@ -334,7 +334,7 @@ class Canvas:
                 f'<rect x="{self.w - 150}" y="6" width="144" height="18" '
                 f'fill="#111" rx="3"/>'
                 f'<text x="{self.w - 78}" y="19" font-size="10" text-anchor="middle" '
-                f'font-family="Helvetica,Arial" fill="#fff">STAGE: {_esc(self.stage.upper())}</text>'
+                f'font-family="Helvetica,Arial" fill="#fff">STAGE: {_esc(self.stage.replace("_", " ").upper())}</text>'
             )
         title = ""
         if self.title:

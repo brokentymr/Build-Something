@@ -220,7 +220,26 @@ def audit_placement(geo: Geometry) -> list[str]:
             f"show a panel the cut list does not buy. Set box_{axis_ext} to the stock "
             f"thickness ({part.thickness:.3f}), and use the joint depth only to seat it.")
 
-    # ---- 6. directed sections that reveal nothing -------------------------
+    # ---- 6. declared size the parts do not add up to -----------------------
+    # The height-stack invariant checks declared layers against the declared
+    # overall — both numbers can agree while the actual parts build to something
+    # else. A shelf ordered 2-1/2in thick whose deck/core/deck stack is 2-1/4in
+    # passes every invariant and arrives an eighth of an inch shy on each face.
+    declared = _declared_height(geo)
+    if declared:
+        built = max(b["z"] + b["h"] for b in boxes) - min(b["z"] for b in boxes)
+        shortfall = declared - built
+        offset = getattr(geo, "per_face_offset", 0.0) or 0.0
+        faces = shortfall / offset if offset > 0.01 else (0.0 if abs(shortfall) < 0.02 else 99)
+        if abs(faces - round(faces)) > 0.05 or round(faces) not in (0, 1, 2):
+            issues.append(
+                f"the piece is declared {declared:.3f}in tall but its parts stack to "
+                f"{built:.3f}in — a difference of {shortfall:.3f}in, which is not a whole "
+                f"number of {offset:.3f}in finish faces. Either the members are sized "
+                f"wrong for the height asked for, or the height is not one this stack "
+                f"can build. Resize the core members so the stack reaches it.")
+
+    # ---- 7. directed sections that reveal nothing -------------------------
     for spec in geo.structure.get("sections") or []:
         axis = spec.get("axis", "x")
         lo, ext = {"x": ("x", "w"), "y": ("y", "d"), "z": ("z", "h")}[axis]
@@ -232,3 +251,13 @@ def audit_placement(geo: Geometry) -> list[str]:
                 f"{len(hit)} part(s) — move it to a plane that reveals the structure.")
 
     return issues
+
+
+def _declared_height(geo: Geometry) -> float | None:
+    """The overall height the design claims, from whichever path authored it."""
+    for key in ("overall.height", "overall_height"):
+        try:
+            return float(geo.scalar(key))
+        except Exception:  # noqa: BLE001
+            continue
+    return None

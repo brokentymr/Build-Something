@@ -364,8 +364,12 @@ def joint_detail(geo: Geometry, contact: dict, tag: str) -> Canvas | None:
     c = Canvas(W, hgt, stage="as_cut",
                title=f"Detail {tag} — item {_it.get(a['id'], a['id'])} to "
                      f"item {_it.get(b['id'], b['id'])}, magnified{typ}")
-    s = min((LABEL_X - MARGIN - 24) / (hmax - hmin), (hgt - 2 * MARGIN) / (vmax - vmin))
-    ox, oy = MARGIN, hgt - MARGIN
+    # Each drawn member gets a thickness dimension in a column to its left, and the
+    # labels hang further left still. Reserve that gutter up front rather than
+    # letting the first column run off the page.
+    dim_gutter = 68.0
+    s = min((LABEL_X - dim_gutter - 24) / (hmax - hmin), (hgt - 2 * MARGIN) / (vmax - vmin))
+    ox, oy = dim_gutter, hgt - MARGIN
 
     def sx(v): return ox + (v - hmin) * s
     def sy(v): return oy - (v - vmin) * s
@@ -456,8 +460,12 @@ def joint_detail(geo: Geometry, contact: dict, tag: str) -> Canvas | None:
     # part tags + nominal thickness (what the builder buys; actual is in the BOM)
     for i, (box, x0, y0, bw, bh, mat) in enumerate(parts_drawn):
         c.text(x0 + bw / 2, y0 + bh / 2 + 3, str(_it.get(box["id"], box["id"])), size=11, weight="bold")
+        # The thickness dimensions stack leftward, one column per part. A part
+        # drawn hard against the left margin pushed its column off the canvas, so
+        # the stack is clamped to stay on the page.
         if mat and bh > 6:
-            c.dim_vertical(y0, y0 + bh, x0 - 10 - i * 26,
+            dim_x = max(34.0, x0 - 10 - i * 26)
+            c.dim_vertical(y0, y0 + bh, dim_x,
                            fmt_inches(mat.nominal_thickness))
     if housing:
         c.elbow_leader(sx(cmid), sy(at - (0.5 if (housed[vl] + housed[vk] / 2) > at else -0.5)),

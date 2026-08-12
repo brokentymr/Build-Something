@@ -22,7 +22,7 @@ from . import detail as gdetail
 
 def _svg(c: Canvas) -> str:
     return f'<div class="fig">{c.render()}<div class="figcap">{_e(c.title)} '\
-           f'<span class="stage">[{c.stage}]</span></div></div>'
+           f'<span class="stage">[{c.stage.replace("_", " ")}]</span></div></div>'
 
 
 def _split_notes(notes) -> list[str]:
@@ -162,6 +162,12 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
     if packet.get("governing_note"):
         B("govnote", "prose", f'<div class="agent-note"><p>{_e(_human(packet["governing_note"], geo))}</p></div>')
     B("spec", "table", _param_table(geo))
+    # A curated node derives a spec of its own — deck sizes, ring width, rib count,
+    # the two plinth heights — that the generic parameter table has no slot for.
+    for i, extra in enumerate(packet.get("extra_sections") or []):
+        if extra.get("where") == "spec" and extra.get("html"):
+            B(f"s_h{i}", "header", _h(extra.get("title", ""), extra.get("kicker", "")))
+            B(f"s_b{i}", extra.get("kind", "table"), extra["html"])
     for k in ("plan", "front_elevation", "side_elevation"):
         if k in hero:
             B(f"fig_{k}", "figure", _svg(hero[k]))
@@ -251,6 +257,16 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
             B(f"step_{i}", "step", _step(i, st, geo))
 
     # ---------- CURE SCHEDULE ----------
+    # ---------- node-specific sections ----------
+    # A curated node knows things about its own build that no generic schema has a
+    # slot for — why the plinth reads two heights, what to check at final QC. They
+    # ride here rather than justifying a second document pipeline.
+    for i, extra in enumerate(packet.get("extra_sections") or []):
+        if not extra.get("html") or extra.get("where") == "spec":
+            continue                       # already placed with the specification
+        B(f"x_h{i}", "header", _h(extra.get("title", ""), extra.get("kicker", "")))
+        B(f"x_b{i}", extra.get("kind", "prose"), extra["html"])
+
     cure = packet.get("cure") or []
     if cure:
         B("h_cure", "header", _h("Cure schedule", "mostly waiting"))
@@ -276,14 +292,36 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
 
 # --------------------------------------------------------------------------
 
+def overall_dims(geo: Geometry) -> tuple[float, float, float] | None:
+    """The finished outside dimensions — what a buyer measures.
+
+    Not the bounding box of the placement: those boxes are carcass, and a coated
+    piece finishes proud of its substrate. A coffee table whose carcass stacks to
+    15-5/8in is a 16in table, and quoting the box height put a number on the cover
+    that traces to no solver field at all."""
+    try:                                    # agent-authored designs publish these
+        return (geo.scalar("overall.width"), geo.scalar("overall.depth"),
+                geo.scalar("overall.height"))
+    except Exception:  # noqa: BLE001
+        pass
+    try:                                    # curated nodes carry finished elements
+        el = max(geo.elements, key=lambda e: e.finished_length.as_finished)
+        return (el.finished_length.as_finished, el.finished_width.as_finished,
+                geo.scalar("overall_height"))
+    except Exception:  # noqa: BLE001
+        pass
+    bx = geo.structure.get("boxes") or []
+    if not bx:
+        return None
+    return (max(b["x"] + b["w"] for b in bx) - min(b["x"] for b in bx),
+            max(b["y"] + b["d"] for b in bx) - min(b["y"] for b in bx),
+            max(b["z"] + b["h"] for b in bx) - min(b["z"] for b in bx))
+
+
 def _cover(geo, plan, hero, kind, title, subtitle, meta, packet) -> str:
-    dims = ""
-    if "boxes" in geo.structure and geo.structure["boxes"]:
-        bx = geo.structure["boxes"]
-        xs = [b["x"] for b in bx] + [b["x"] + b["w"] for b in bx]
-        ys = [b["y"] for b in bx] + [b["y"] + b["d"] for b in bx]
-        zs = [b["z"] for b in bx] + [b["z"] + b["h"] for b in bx]
-        dims = f"{fmt_inches(max(xs)-min(xs))} &times; {fmt_inches(max(ys)-min(ys))} &times; {fmt_inches(max(zs)-min(zs))}"
+    od = overall_dims(geo)
+    dims = (f"{fmt_inches(od[0])} &times; {fmt_inches(od[1])} &times; {fmt_inches(od[2])}"
+            if od else "")
     wt = geo.scalars.get("weight_estimate")
     chips = [("Overall", dims or "&mdash;"),
              ("Weight", f"~{wt.value:g} lb" if wt else "&mdash;"),
@@ -369,12 +407,9 @@ def build_generic_document(geo: Geometry, plan: NestingPlan, packet: dict,
     heights = _measure(blocks)
     pages = _paginate(blocks, heights)
     kind = str(geo.structure.get("node_kind", geo.node) or "build").replace("_", " ")
-    try:
-        dims = (f"{fmt_inches(geo.scalar('overall.width'))} x "
-                f"{fmt_inches(geo.scalar('overall.depth'))} x "
-                f"{fmt_inches(geo.scalar('overall.height'))}")
-    except Exception:  # noqa: BLE001 — a design need not publish overall scalars
-        dims = ""
+    od = overall_dims(geo)
+    dims = (f"{fmt_inches(od[0])} x {fmt_inches(od[1])} x {fmt_inches(od[2])}"
+            if od else "")
     runhead = f"{kind} &middot; {dims}" if dims else kind
     html = _render_pages(pages, runhead=runhead, footer_left=f"{kind} build packet")
     os.makedirs("out", exist_ok=True)

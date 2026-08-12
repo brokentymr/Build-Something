@@ -134,6 +134,12 @@ def build(answers: dict) -> SolveDraft:
         "spans": [{"name": "shelf_bay", "unsupported_span": bay, "flex_threshold": FLEX_THRESHOLD}],
         "backing": [{"name": "shelf_front", "surface_width": carcass_th, "backing_width": carcass_th}],
         "rib_left_edges": [RING + k * bay + (k - 1) * RING for k in range(1, rib_count + 1)],
+        "boxes": _placement(deck_len=deck_len, deck_depth=deck_depth, t=t,
+                            carcass_th=carcass_th, skin=s, L=L, D=D,
+                            ribs=[RING + k * bay + (k - 1) * RING
+                                  for k in range(1, rib_count + 1)]),
+        "node_kind": "floating_shelf",
+        "summary": "Shallow torsion-box shelf, skinned and coated as one piece.",
     }
 
     elements = (
@@ -183,3 +189,32 @@ def build(answers: dict) -> SolveDraft:
         derived_decisions=derived, finish_id=fin.id, per_face_offset=s,
         structure=structure, joints=joints, operations=operations, skins=skins,
     )
+
+
+def _placement(*, deck_len, deck_depth, t, carcass_th, skin, L, D, ribs) -> list[dict]:
+    """Where every part sits. The solver sizes them; this places them, so the same
+    drawing set and placement audit that serve an agent-authored design serve this
+    one too. Origin is the front-left-bottom corner of the finished shelf."""
+    boxes: list[dict] = []
+
+    def add(pid, x, y, z, w, d, h):
+        boxes.append({"id": pid, "x": round(x, 4), "y": round(y, 4), "z": round(z, 4),
+                      "w": round(w, 4), "d": round(d, 4), "h": round(h, 4)})
+
+    ox = (L - deck_len) / 2          # skin is added back on both ends
+    oy = 0.0                         # front face skinned, back sits against the wall
+    z0 = skin
+    add("B", ox, oy, z0, deck_len, deck_depth, t)                       # bottom deck
+    core_z = z0 + t
+    # The core members are strips of the same sheet laid flat, so the cavity they
+    # fill is one board thick — the same way the coffee table's core reads.
+    core_h = t
+    add("C", ox, oy, core_z, deck_len, RING, core_h)                    # front rail
+    add("D", ox, oy + deck_depth - RING, core_z, deck_len, RING, core_h)  # back rail
+    inner_d = deck_depth - 2 * RING
+    add("E", ox, oy + RING, core_z, RING, inner_d, core_h)              # end cap, left
+    add("E", ox + deck_len - RING, oy + RING, core_z, RING, inner_d, core_h)
+    for edge in ribs:
+        add("F", ox + edge, oy + RING, core_z, RING, inner_d, core_h)
+    add("A", ox, oy, core_z + core_h, deck_len, deck_depth, t)          # top deck
+    return boxes

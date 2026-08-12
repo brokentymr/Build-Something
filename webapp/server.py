@@ -151,7 +151,10 @@ def do_intake(pid: str, text: str) -> dict:
 
 
 def do_generate(pid: str) -> dict:
-    from build_assistant.document.engine import build_document, render_pdf
+    from build_assistant.document.engine import render_pdf
+    from build_assistant.document.curated_packet import curated_packet
+    from build_assistant.generative.document import (
+        build_generic_document, generic_drawings)
     from build_assistant.gates.gates import run_all_gates, all_passed
     answers = STORE.answers(pid)
     node = answers.get("node")
@@ -164,8 +167,14 @@ def do_generate(pid: str) -> dict:
     STORE.set_status(pid, "generating")
     geo = solve(answers)
     plan = plan_nesting(geo)
-    doc = build_document(geo, plan, out_name=f"project_{pid}")
-    gates = run_all_gates(geo, plan, doc["html_path"], doc["html"])
+    # One document pipeline, whether the design came from a curated node or from
+    # the design agent. A curated node supplies its authored content as a packet;
+    # the assembly, the drawing set and the editorial rules are the same either
+    # way, so a fix for one generation is a fix for every generation.
+    doc = build_generic_document(geo, plan, curated_packet(geo, plan),
+                                 out_name=f"project_{pid}")
+    gates = run_all_gates(geo, plan, doc["html_path"], doc["html"],
+                          drawings=generic_drawings(geo, plan))
     gates_json = [{"name": g.name, "passed": g.passed, "detail": g.detail} for g in gates]
     if not all_passed(gates):
         STORE.set_status(pid, "configuring")

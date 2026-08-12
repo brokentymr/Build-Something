@@ -149,3 +149,45 @@ def test_nesting_buys_strips_not_impossible_boards():
     side = next(p for p in geo.parts if p.id == "A")
     assert glue_up(side).count >= 2
     print("  [ok] nesting places glue-up strips, all within real board widths")
+
+
+def test_one_pipeline_serves_curated_nodes_too():
+    """There were two document builders and the app shipped the older one: it
+    printed raw operation ids in a reader-facing column and had no sections or
+    joint details at all. A curated node now goes through the same pipeline."""
+    import json, os
+    from build_assistant.core.solver import solve
+    from build_assistant.document.curated_packet import curated_packet
+    from build_assistant.generative.document import build_generic_document, generic_drawings
+    fixture = os.path.join(os.path.dirname(__file__), "..", "fixtures",
+                           "coffee_table_reference.json")
+    geo = solve(json.load(open(fixture)))
+    plan = plan_nesting(geo)
+    doc = build_generic_document(geo, plan, curated_packet(geo, plan), out_name="_unified_probe")
+
+    drawings = generic_drawings(geo, plan)
+    for want in ("exploded", "section_aa", "section_bb", "joint_d1", "predrill"):
+        assert want in drawings, f"the curated packet is missing {want}"
+
+    body = re.sub(r"<svg.*?</svg>", " ", doc["html"], flags=re.S)
+    body = re.sub(r"<[^>]+>", " ", body)
+    leaks = sorted(set(re.findall(r"\b[a-z]+_[a-z_]{3,}\b", body)))
+    assert not leaks, f"ids reached the page: {leaks}"
+
+    for kept in ("The allowance layer", "plinth reads two heights", "Troubleshooting"):
+        assert kept in doc["html"], f"node-specific content lost: {kept}"
+    print(f"  [ok] curated node builds through the one pipeline: "
+          f"{doc['page_count']}pp, {len(drawings)} drawings, no id leaks")
+
+
+def test_a_node_without_a_sequence_recipe_still_releases():
+    """build_sequence is written against the coffee table's scalars, so the shelf
+    node crashed document generation outright — in both old pipelines."""
+    from build_assistant.core.solver import solve
+    from build_assistant.document.curated_packet import curated_packet
+    geo = solve({"node": "floating_shelf", "overall_length": 36, "overall_depth": 10,
+                 "overall_thickness": 2.5, "finish_system": "paint_buildup"})
+    packet = curated_packet(geo, plan_nesting(geo))
+    assert packet["steps"] == [], "expected no sequence for a node without a recipe"
+    assert packet["extra_sections"], "the node still gets its tool and cure tables"
+    print("  [ok] a node with no sequence recipe produces a packet instead of a crash")
