@@ -218,6 +218,26 @@ class Canvas:
         off = 3 if side == "right" else -3
         self.text(lx + off, ly + fs * 0.35, label, size=fs, anchor=anchor, color="#3a352c")
 
+    def notched_rect(self, x, y, w, h, nx0, nx1, depth, from_top=True,
+                     fill="#f4f0e6", sw=1.1):
+        """Rectangle with a rectangular housing cut (dado / groove / rabbet).
+
+        ``nx0``/``nx1`` bound the notch across the face, ``depth`` is how deep it
+        is machined. Cut from the top edge when ``from_top``, else the bottom."""
+        nx0 = max(x, min(nx0, x + w))
+        nx1 = max(x, min(nx1, x + w))
+        if nx1 - nx0 <= 0.5 or depth <= 0.5:
+            self.rect(x, y, w, h, fill=fill, sw=sw)
+            return
+        if from_top:
+            pts = [(x, y), (nx0, y), (nx0, y + depth), (nx1, y + depth), (nx1, y),
+                   (x + w, y), (x + w, y + h), (x, y + h)]
+        else:
+            yb = y + h
+            pts = [(x, y), (x + w, y), (x + w, yb), (nx1, yb), (nx1, yb - depth),
+                   (nx0, yb - depth), (nx0, yb), (x, yb)]
+        self.polygon(pts, fill=fill, sw=sw)
+
     def balloon(self, x, y, tag: str, r=8.5):
         """Numbered/lettered callout balloon, the way an assembly schematic keys
         parts to its legend. Drawn opaque so it stays readable over geometry."""

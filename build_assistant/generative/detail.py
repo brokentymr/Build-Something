@@ -274,17 +274,48 @@ def joint_detail(geo: Geometry, contact: dict, tag: str) -> Canvas | None:
     def sx(v): return ox + (v - hmin) * s
     def sy(v): return oy - (v - vmin) * s
 
+    # Machined joinery: if one member is housing the other (dado / groove /
+    # rabbet), cut the real profile instead of drawing a butt contact. The housed
+    # member is shown seated in it by the housing depth.
+    joinery = geo.structure.get("joinery", {})
+    housing_id = next((box["id"] for box in (a, b) if box["id"] in joinery), None)
+    housing = joinery.get(housing_id) if housing_id else None
+    housed_id = next((box["id"] for box in (a, b) if box["id"] != housing_id), None) \
+        if housing else None
+    dado_w = 0.0
+    if housing:
+        other = a if a["id"] == housed_id else b
+        dado_w = other[hk]
+
+    housed = a if (housed_id and a["id"] == housed_id) else b
+    depth_in = housing["depth"] if housing else 0.0
+
     parts_drawn = []
     for box in (a, b):
-        x0 = sx(max(box[hl], hmin))
-        x1 = sx(min(box[hl] + box[hk], hmax))
-        y1 = sy(max(box[vl], vmin))
-        y0 = sy(min(box[vl] + box[vk], vmax))
-        if x1 - x0 <= 0 or y1 - y0 <= 0:
-            continue
         mat = _mat_of(geo, box["id"])
         cat = mat.category if mat else "sheet_good"
-        c.rect(x0, y0, x1 - x0, y1 - y0, fill="#f4f0e6", sw=1.1)
+        lo_v, hi_v = box[vl], box[vl] + box[vk]
+        if housing and box["id"] == housed["id"] and depth_in > 0:
+            # seat the housed member into the groove by the housing depth
+            if (box[vl] + box[vk] / 2) > at:
+                lo_v -= depth_in
+            else:
+                hi_v += depth_in
+        x0 = sx(max(box[hl], hmin))
+        x1 = sx(min(box[hl] + box[hk], hmax))
+        y1 = sy(max(lo_v, vmin))
+        y0 = sy(min(hi_v, vmax))
+        if x1 - x0 <= 0 or y1 - y0 <= 0:
+            continue
+        if housing and box["id"] == housing_id and dado_w > 0:
+            # cut the real housing profile into the section
+            nx0 = sx(max(hmin, housed[hl]))
+            nx1 = sx(min(hmax, housed[hl] + housed[hk]))
+            from_top = (box[vl] + box[vk] / 2) < at    # housing lies below the seam
+            c.notched_rect(x0, y0, x1 - x0, y1 - y0, nx0, nx1,
+                           depth_in * s, from_top=from_top)
+        else:
+            c.rect(x0, y0, x1 - x0, y1 - y0, fill="#f4f0e6", sw=1.1)
         c.material_hatch(x0, y0, x1 - x0, y1 - y0, cat)
         parts_drawn.append((box, x0, y0, x1 - x0, y1 - y0, mat))
 
@@ -332,6 +363,11 @@ def joint_detail(geo: Geometry, contact: dict, tag: str) -> Canvas | None:
         if mat and bh > 6:
             c.dim_vertical(y0, y0 + bh, x0 - 10 - i * 26,
                            fmt_inches(mat.nominal_thickness))
+    if housing:
+        c.elbow_leader(sx(cmid), sy(at - (0.5 if (housed[vl] + housed[vk] / 2) > at else -0.5)),
+                       LABEL_X, hgt - MARGIN + 6,
+                       f"{housing['type']} {_frac(housing['depth'])} deep", side="right",
+                       size=8.5)
     part_a = _part_of(geo, a["id"])
     if part_a and part_a.joint:
         c.text(MARGIN, hgt - 14, part_a.joint[:74], size=9, anchor="start", color="#6a655b")

@@ -34,6 +34,7 @@ def compile_design(ir: DesignIR, check: bool = True) -> Geometry:
     parts: list[Part] = []
     scalars: dict[str, ScalarField] = {}
     boxes: list[dict] = []
+    joinery: dict[str, dict] = {}
     for p in ir.parts:
         mid = role_mat.get(p.material_role)
         if mid is None:
@@ -50,6 +51,10 @@ def compile_design(ir: DesignIR, check: bool = True) -> Geometry:
                           p.grain, "as_cut", p.element, p.joint))
         scalars[f"part.{p.id}.length"] = ScalarField(f"part.{p.id}.length", L.as_cut)
         scalars[f"part.{p.id}.width"] = ScalarField(f"part.{p.id}.width", W.as_cut)
+        # machined joinery this part receives (drives the joint detail profile)
+        if p.joint_type and p.joint_type != "butt":
+            depth = ev(p.joint_depth_expr) if p.joint_depth_expr else mat.actual_thickness / 3.0
+            joinery[p.id] = {"type": p.joint_type, "depth": round(max(0.0, depth), 4)}
         # 3D placement (for hero drawings): one box per instance
         if p.has_box():
             bx, by, bz = ev(p.box_x or "0"), ev(p.box_y or "0"), ev(p.box_z or "0")
@@ -127,6 +132,7 @@ def compile_design(ir: DesignIR, check: bool = True) -> Geometry:
     structure["node_kind"] = ir.node_kind
     structure["warnings"] = ir.warnings
     structure["boxes"] = boxes
+    structure["joinery"] = joinery
     # Register the assembled bounding-box dimensions as solver scalars so the
     # cover's "overall" dims trace (Gate 1). These are engine-computed from the
     # part placements, not authored.

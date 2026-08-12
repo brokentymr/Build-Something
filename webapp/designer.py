@@ -106,7 +106,8 @@ class DesignAgent:
             "grain":"length|width|none",
             "finished_faces_len": 0-2, "finished_faces_wid": 0-2, "joint": str,
             "box_x":expr,"box_y":expr,"box_z":expr,"box_w":expr,"box_d":expr,"box_h":expr,
-            "step_x":expr,"step_y":expr,"step_z":expr}],
+            "step_x":expr,"step_y":expr,"step_z":expr,
+            "joint_type":"butt|dado|groove|rabbet|pocket|miter","joint_depth_expr":expr}],
  "invariants": [{"kind":"span","params":{"name":str,"unsupported_span":expr,"flex_threshold":number}},
                 {"kind":"backing","params":{"name":str,"surface_width":expr,"backing_width":expr}}],
  "derived": [{"label":str,"value":str,"basis":str,"is_overridable":bool}],
@@ -125,6 +126,11 @@ For qty>1 parts that repeat (e.g. shelves up the height), set step_x/y/z to the
 spacing between instances. Placement must form the actual assembled object — the
 engine draws plan, elevations and an exploded view from these boxes, so get them
 right (a side panel is thin in x, a shelf thin in z, a back thin in y).
+JOINERY: set joint_type on the member that RECEIVES a machined cut (the housing) —
+the side panel that carries a dado for a shelf, the panel with a rabbet for a
+back. Give joint_depth_expr for that cut (a third of the housing thickness is
+typical). Leave joint_type "butt" for parts that simply butt together. The engine
+draws the real machined profile in the joint details from these, so be accurate.
 RULES: parts must be cuttable from the chosen material's stock. Use joinery that
 makes sense (butt/dado/pocket). Mark finished_faces_* only for faces that get the
 finish. For any unsupported shelf/panel add a span invariant whose flex_threshold

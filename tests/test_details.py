@@ -86,6 +86,37 @@ def test_joint_detail_has_fastener_and_pilot():
     print("  [ok] joint detail carries fastener, pilot and driver, in bounds")
 
 
+def test_dado_profile_is_cut_and_called_out():
+    """A housing member with a dado must show the real machined profile, and the
+    housed member must seat into it — not a plain butt contact."""
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in spec["parts"]:
+        if p["id"] in ("A", "B"):
+            p["joint_type"] = "dado"
+            p["joint_depth_expr"] = "carcass_t/3"
+    geo = compile_design(DesignIR.from_dict(spec))
+    assert geo.structure["joinery"]["A"]["type"] == "dado"
+    depth = geo.structure["joinery"]["A"]["depth"]
+    assert 0.2 < depth < 0.3, depth       # 3/4 stock / 3
+
+    contact = next(c for c in find_contacts(geo)
+                   if "A" in (c["a"]["id"], c["b"]["id"]) and "C" in (c["a"]["id"], c["b"]["id"]))
+    c = joint_detail(geo, contact, "D1")
+    svg = c.render()
+    assert "dado" in svg, "the joint detail must call out the housing cut"
+    assert "<polygon" in svg, "the housing member must be drawn notched, not as a plain rect"
+    assert not c.overflowing_labels() and not c.geometry_overflow()
+    print(f"  [ok] dado profile cut {depth:.3f} deep, housed part seated, called out")
+
+
+def test_butt_joint_has_no_notch_callout():
+    geo = _geo()          # no joint_type set -> plain butt
+    assert geo.structure.get("joinery") == {}
+    c = joint_detail(geo, find_contacts(geo)[0], "D1")
+    assert "dado" not in c.render()
+    print("  [ok] butt joints draw without a machined profile")
+
+
 def test_fastener_choice_respects_substrate():
     # cement board forbids the cabinet screw; a legal fastener must be chosen
     f = pick_fastener(0.25, "cement_board")
