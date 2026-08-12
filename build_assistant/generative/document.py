@@ -8,6 +8,8 @@ cure, care). Reuses the shared document design system and the release gates.
 
 from __future__ import annotations
 
+import re
+
 from ..core.model import Geometry
 from ..nesting.plan import NestingPlan
 from ..drawing.primitives import Canvas, fmt_inches
@@ -50,7 +52,14 @@ def _human(text: str, geo: Geometry) -> str:
             text = text.replace(p.id, p.name.lower())
     if geo.finish_id and geo.finish_id in text:
         text = text.replace(geo.finish_id, _finish_name(geo).lower())
-    return text
+    # The agent writes "BACK panel", and the name it stands for is already
+    # "Back panel" — substituting leaves "back panel panel". Collapse the stutter.
+    return _dedupe_words(text)
+
+
+def _dedupe_words(text: str) -> str:
+    """Drop an immediately repeated word ("panel panel" -> "panel")."""
+    return re.sub(r"\b(\w+)(\s+\1)\b(?!\w)", r"\1", text, flags=re.IGNORECASE)
 
 
 def _stock_diagram(geo: Geometry, nest, mid: str, i: int) -> Canvas:

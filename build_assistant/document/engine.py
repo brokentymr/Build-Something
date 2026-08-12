@@ -110,7 +110,8 @@ table.grid.strong td:last-child {{ font-weight:700; }}
 .cover .revtag {{ position:absolute; top:{MARGIN}px; right:{MARGIN}px;
   font-family:"SF Mono",Menlo,monospace; font-size:9px; letter-spacing:1.5px; color:#8b857a;
   text-transform:uppercase; }}
-.cover .toprule {{ border-top:5px solid #17150f; margin-bottom:22px; }}
+/* the rule clears the revision tag rather than striking through it */
+.cover .toprule {{ border-top:5px solid #17150f; margin-top:16px; margin-bottom:22px; }}
 .cover .eyebrow {{ font-family:"SF Mono",Menlo,monospace; font-size:10px; letter-spacing:3px;
   color:#8b857a; text-transform:uppercase; margin-bottom:6px; }}
 .coverwrap {{ display:flex; gap:24px; }}

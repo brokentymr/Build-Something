@@ -328,13 +328,16 @@ class Canvas:
             )
         title = ""
         if self.title:
-            # The stage badge occupies the top-right; clip the in-drawing title so
-            # it cannot run underneath it. The figure caption carries the full text,
-            # so nothing is lost.
+            # The stage badge occupies the top-right; the title must not run
+            # underneath it. Step the type down before cutting words: a title that
+            # fits whole at 10pt reads better than one clipped to "…" at 12pt.
             avail = self.w - (165 if self.stage else 20)
-            cap = max(8, int(avail / (12 * 0.58)))
+            size = 12.0
+            if len(self.title) * size * 0.58 > avail:
+                size = max(9.5, avail / (len(self.title) * 0.58))
+            cap = max(8, int(avail / (size * 0.58)))
             shown = self.title if len(self.title) <= cap else self.title[:cap - 1] + "…"
-            title = (f'<text x="10" y="18" font-size="12" font-weight="bold" '
+            title = (f'<text x="10" y="18" font-size="{size:.1f}" font-weight="bold" '
                      f'font-family="Helvetica,Arial" fill="#111">{_esc(shown)}</text>')
         body = "\n".join(self._els)
         return (

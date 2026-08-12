@@ -255,11 +255,12 @@ Keep it genuinely buildable."""
             "Return ONLY the JSON.")
         try:
             return self.boundary_call(system, user)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            self.last_packet_error = f"{type(exc).__name__}: {exc}"
             return {}
 
     def boundary_call(self, system, user):
-        raw = self._llm(system, user, 4000)
+        raw = self._llm(system, user, 8000)
         import json as _j
         a, b = raw.find("{"), raw.rfind("}")
         obj = _j.loads(raw[a:b + 1])

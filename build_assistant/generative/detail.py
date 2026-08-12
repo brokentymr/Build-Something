@@ -57,16 +57,34 @@ LABEL_X = 306.0
 LABEL_MAXW = W - LABEL_X - 10.0
 
 
-def _fit(labels: list[str], base=9.0) -> tuple[float, int]:
+def _fit(labels: list[str], base=9.0, maxw: float | None = None) -> tuple[float, int]:
     """Font size and character cap so the longest label fits the gutter."""
+    avail = LABEL_MAXW if maxw is None else maxw
     longest = max((len(s) for s in labels), default=1)
-    size = max(6.0, min(base, LABEL_MAXW / (longest * 0.6)))
-    cap = max(8, int(LABEL_MAXW / (size * 0.6)))
+    size = max(6.0, min(base, avail / (longest * 0.6)))
+    cap = max(8, int(avail / (size * 0.6)))
     return size, cap
 
 
 def _clip(s: str, cap: int) -> str:
     return s if len(s) <= cap else s[: max(1, cap - 1)] + "…"
+
+
+# A section frame is sized to its cut, between these bounds: tall enough for a
+# 54in bookcase to read, short enough that the figure and its caption still fit
+# on one page.
+SEC_MIN_H, SEC_MAX_H = 260.0, 540.0
+
+
+def _section_label(geo: Geometry, pid: str, items: dict) -> str:
+    part = _part_of(geo, pid)
+    mat = _mat_of(geo, pid)
+    thick = fmt_inches(mat.nominal_thickness) if mat else ""
+    return f"{items.get(pid, '?')} · {part.name if part else pid} · {thick}"
+
+
+def _section_labels(geo: Geometry, pids, items: dict) -> list[str]:
+    return [_section_label(geo, p, items) for p in pids]
 
 
 # --------------------------------------------------------------------------
@@ -125,16 +143,39 @@ def cross_section(geo: Geometry, axis: str = "x", cut: float | None = None,
     if rw <= 0 or rh <= 0:
         return None
 
-    hgt = 340.0
     tag = tag or ("A-A" if axis == "x" else "B-B")
     plane_name = {"x": "looking along the length",
                   "y": "looking along the depth",
                   "z": "looking down"}[axis]
-    c = Canvas(W, hgt, stage="as_cut",
-               title=f"Section {tag} — {why or plane_name}")
-    avail_w = LABEL_X - MARGIN - 24
-    s = min(avail_w / rw, (hgt - 2 * MARGIN - 10) / rh)
-    ox = MARGIN
+
+    # Size the frame to the cut rather than forcing every section into one box. A
+    # bookcase sliced across its depth is four times taller than it is wide; in a
+    # fixed 340-tall frame it shrinks to a sliver and leaves half the page blank.
+    # Scale to the width the labels leave free, then let the height follow — capped
+    # so the figure still fits a page with its caption.
+    from .draw import item_numbers          # same keys as the balloons / cut list
+    items = item_numbers(geo)
+    label_texts = _section_labels(geo, {b["id"] for b in hit}, items)
+    want = max((len(t) for t in label_texts), default=20) * 0.6 * 9.0 + 8
+    label_x_pref = min(LABEL_X, max(210.0, W - 10.0 - want))
+    avail_w = label_x_pref - MARGIN - 46
+    s = min(avail_w / rw, (SEC_MAX_H - 2 * MARGIN - 10) / rh)
+    hgt = max(SEC_MIN_H, min(SEC_MAX_H, rh * s + 2 * MARGIN + 10))
+
+    # The tag alone titles the figure; the designer's reason for cutting here rides
+    # on the caption line below it, where there is room to read it whole rather
+    # than have it clipped to an ellipsis under the stage badge.
+    c = Canvas(W, hgt, stage="as_cut", title=f"Section {tag}")
+
+    # Drawing and gutter are laid out first, then the pair is centred as one
+    # composition — otherwise a narrow section hugs the left edge and leaves a
+    # band of blank paper down the right.
+    label_x = min(label_x_pref, max(MARGIN + rw * s + 46.0, 150.0))
+    fs, cap = _fit(label_texts, maxw=W - label_x - 10.0)
+    text_w = max((len(_clip(t, cap)) for t in label_texts), default=0) * 0.6 * fs
+    pad = max(0.0, (W - 10.0 - (label_x + text_w)) / 2)
+    label_x += pad
+    ox = MARGIN + pad
     oy = hgt - MARGIN - 6                            # baseline; v grows upward
 
     def sx(v): return ox + (v - hmin) * s
@@ -194,26 +235,22 @@ def cross_section(geo: Geometry, axis: str = "x", cut: float | None = None,
     # Leader labels in the right gutter. Sorted by the vertical position of their
     # TARGET, so leaders never cross each other, and evenly spaced so they never
     # collide with one another.
-    from .draw import item_numbers          # same keys as the balloons / cut list
-    items = item_numbers(geo)
     ids = sorted(seen.items(), key=lambda kv: kv[1][1])
-    texts = []
-    for pid, _ in ids:
-        part = _part_of(geo, pid)
-        mat = _mat_of(geo, pid)
-        thick = fmt_inches(mat.nominal_thickness) if mat else ""
-        texts.append(f"{items.get(pid, '?')} · {part.name if part else pid} · {thick}")
-    fs, cap = _fit(texts)
+    texts = [_section_label(geo, pid, items) for pid, _ in ids]
     top, bot = MARGIN + 4, hgt - MARGIN + 4
     stepn = max(1, len(ids))
     for i, ((pid, (px, py, b)), txt) in enumerate(zip(ids, texts)):
         ly = top + (bot - top) * (i + 0.5) / stepn
-        c.elbow_leader(px, py, LABEL_X, ly, _clip(txt, cap), side="right", size=fs)
+        c.elbow_leader(px, py, label_x, ly, _clip(txt, cap), side="right", size=fs)
     # overall section dimensions + where the plane cuts (inside the drawing, so it
     # sits under Gate 3's bounds check rather than in scanned caption prose)
     c.dim_horizontal(sx(hmin), sx(hmax), oy + 20, fmt_inches(rw))
-    c.text(MARGIN, MARGIN - 16, f"cut {fmt_inches(cut)} along {axis}",
-           size=8.5, anchor="start", color="#a4632e")
+    caption = f"cut {fmt_inches(cut)} along {axis}"
+    if why:
+        caption += f" · {why}"
+    elif plane_name:
+        caption += f" · {plane_name}"
+    c.text(MARGIN, MARGIN - 16, caption, size=8.5, anchor="start", color="#a4632e")
     return c
 
 

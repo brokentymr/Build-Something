@@ -73,6 +73,23 @@ def test_catches_stacked_duplicate_instances():
     print("  [ok] repeated instances landing on each other are caught")
 
 
+def test_catches_solid_drawn_thinner_than_its_stock():
+    """A back written as `box_d = rabbet_depth` is 3/4in ply modelled 1/4in thick —
+    the cut list buys one panel and every drawing shows another."""
+    geo = _with({"D": {"box_d": "0.25"}})
+    issues = audit_placement(geo)
+    assert any("thick on y" in i for i in issues), issues
+    assert any("box_d" in i for i in issues), "the message must prescribe the fix"
+    print("  [ok] a solid thinner than its own stock is caught")
+
+
+def test_lamination_is_not_flagged():
+    """Two layers of the back's own stock glued up — legitimate, not a defect."""
+    geo = _with({"D": {"box_d": "0.4"}})            # 2 x the 0.20in actual
+    assert not [i for i in audit_placement(geo) if "stock" in i and "thick on" in i]
+    print("  [ok] a multiple of the stock thickness is accepted as a lamination")
+
+
 def test_catches_useless_directed_section():
     geo = _with(extra={"sections": [
         {"tag": "Z-Z", "axis": "z", "at_expr": "60", "why": "above the piece entirely"}]})

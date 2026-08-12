@@ -168,7 +168,30 @@ def audit_placement(geo: Geometry) -> list[str]:
                 continue
             break
 
-    # ---- 5. directed sections that reveal nothing -------------------------
+    # ---- 5. solids drawn at the wrong stock thickness ---------------------
+    # A part is cut from real stock, so one of its three box dimensions has to BE
+    # that stock's thickness (or a multiple of it, for a lamination). A back panel
+    # written as `box_d = rabbet_depth` is 3/4in plywood modelled 1/4in thick: the
+    # cut list buys one thing and every drawing shows another.
+    parts_by_id = {p.id: p for p in geo.parts}
+    for pid, group in by_id.items():
+        part = parts_by_id.get(pid)
+        if not part or part.thickness <= 0:
+            continue
+        b = group[0]
+        dims = {ext: b[ext] for _, ext in AXES}
+        if any(any(abs(v - n * part.thickness) <= 0.04 for n in (1, 2, 3, 4))
+               for v in dims.values()):
+            continue
+        axis_ext = min(dims, key=dims.get)
+        axis_lo = next(lo for lo, ext in AXES if ext == axis_ext)
+        issues.append(
+            f"part {pid} ({names.get(pid, pid)}) is cut from {part.thickness:.3f}in stock "
+            f"but its solid is {dims[axis_ext]:.2f}in thick on {axis_lo} — the drawings would "
+            f"show a panel the cut list does not buy. Set box_{axis_ext} to the stock "
+            f"thickness ({part.thickness:.3f}), and use the joint depth only to seat it.")
+
+    # ---- 6. directed sections that reveal nothing -------------------------
     for spec in geo.structure.get("sections") or []:
         axis = spec.get("axis", "x")
         lo, ext = {"x": ("x", "w"), "y": ("y", "d"), "z": ("z", "h")}[axis]

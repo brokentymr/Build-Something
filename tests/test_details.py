@@ -205,6 +205,32 @@ def test_designer_directed_section():
     print("  [ok] designer-directed section drawn at its chosen plane, with its reason")
 
 
+def test_section_labels_track_the_drawing_and_title_is_whole():
+    """A tall, narrow section must not strand its labels across dead space, and a
+    long designer-written reason must read whole rather than clip to an ellipsis."""
+    import re
+    why = "through the centre showing shelf span and back panel attachment"
+    spec = {**_CASE, "sections": [
+        {"tag": "B-B", "axis": "x", "at_expr": "width/2", "why": why}]}
+    geo = compile_design(DesignIR.from_dict(spec))
+    c = next(v for k, v in detail_drawings(geo).items() if k.startswith("section_"))
+    svg = c.render()
+
+    assert why in svg, "the designer's reason must appear in full"
+    assert "…" not in svg, "nothing in a section may be clipped to an ellipsis"
+
+    # the section here is 12in deep against 48in tall, so it draws as a slim
+    # column: the label gutter must follow it left instead of sitting at 306
+    xs = [float(m) for m in re.findall(r'<text x="([\d.]+)"[^>]*text-anchor="start"', svg)]
+    leaders = [x for x in xs if x > _MARGIN_GUESS]
+    assert leaders and min(leaders) < 300, f"labels stranded right: {sorted(leaders)[:3]}"
+    assert not c.overflowing_labels() and not c.geometry_overflow()
+    print("  [ok] section gutter follows the geometry, title and reason read whole")
+
+
+_MARGIN_GUESS = 40.0
+
+
 def test_auto_section_fallback_when_undirected():
     geo = compile_design(DesignIR.from_dict(_CASE))   # no sections authored
     assert geo.structure.get("sections") == []
