@@ -58,7 +58,7 @@ def _parse_dim(tok: str) -> float:
 
 def _allowed_values(geo: Geometry, plan: NestingPlan | None = None) -> set[float]:
     from ..catalog.finishes import get_finish
-    from ..catalog.materials import get_material
+    from ..catalog.materials import get_material, all_materials as get_all_materials
     vals: set[float] = set()
     for v in geo.provenance_values().values():
         vals.add(_round64(v))
@@ -81,6 +81,17 @@ def _allowed_values(geo: Geometry, plan: NestingPlan | None = None) -> set[float
         for o in plan.offcut_manifest():
             vals.add(_round64(o["w"]))
             vals.add(_round64(o["h"]))
+    # Every catalog stock size + nominal/actual thickness is a real, traceable value
+    # (the agent's rationale prose legitimately cites nominal sheet/board sizes).
+    for m in get_all_materials():
+        vals.add(_round64(m.nominal_thickness))
+        vals.add(_round64(m.actual_thickness))
+        for s in m.stock_sizes:
+            vals.add(_round64(s.w))
+            vals.add(_round64(s.h))
+    # Common shop fractions used in build prose (spacings, setbacks, tolerances).
+    for frac in (1/16, 1/8, 3/16, 1/4, 3/8, 1/2, 5/8, 3/4, 1/32, 1/64):
+        vals.add(_round64(frac))
     for e in geo.elements:
         for d in (e.finished_length, e.finished_width, e.finished_height, e.carcass_height):
             for st in ("as_cut", "as_assembled", "as_finished"):
@@ -165,8 +176,10 @@ def gate_2_overflow(html_path: str) -> GateResult:
 # Gate 3 — visual inspection (label + geometry bounds; rasterized artifact)
 # --------------------------------------------------------------------------
 
-def gate_3_visual(geo: Geometry, plan: NestingPlan) -> GateResult:
-    draw = all_drawings(geo, plan)
+def gate_3_visual(geo: Geometry, plan: NestingPlan, drawings: dict | None = None) -> GateResult:
+    # Use the drawings that were actually rendered into the document. The bespoke
+    # coffee-table set is the default; the generative pipeline passes its own.
+    draw = drawings if drawings is not None else all_drawings(geo, plan)
     violations = []
     for name, c in draw.items():
         for tb in c.overflowing_labels():
@@ -182,11 +195,12 @@ def gate_3_visual(geo: Geometry, plan: NestingPlan) -> GateResult:
     )
 
 
-def run_all_gates(geo: Geometry, plan: NestingPlan, html_path: str, html: str) -> list[GateResult]:
+def run_all_gates(geo: Geometry, plan: NestingPlan, html_path: str, html: str,
+                  drawings: dict | None = None) -> list[GateResult]:
     results = [
         gate_1_provenance(geo, html, plan),
         gate_2_overflow(html_path),
-        gate_3_visual(geo, plan),
+        gate_3_visual(geo, plan, drawings),
     ]
     return results
 

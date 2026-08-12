@@ -1,0 +1,224 @@
+"""The design agent — open-domain, agent-authored, loop-refined.
+
+This is the "build anything" core. From a natural-language description the agent
+AUTHORS a parametric model (the DesignIR), then refines it through cycles:
+
+    synthesize -> compile (deterministic) -> critique -> repair -> compile -> ...
+
+until it converges (no issues, compiles clean, invariants hold) or the cycle
+budget is spent. The agent supplies structure and relationships; the engine
+computes every number (Law 1). Every round is audited deterministically — a round
+that fails to compile or violates an invariant feeds its exact error back to the
+repair step. More cycles are spent when the design needs them.
+
+Only the ARITHMETIC is off-limits to the model; the architecture, judgement and
+refinement are exactly its job (per the product intent).
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import urllib.request
+from dataclasses import dataclass, field
+
+from build_assistant.catalog.materials import all_materials
+from build_assistant.catalog.finishes import all_finishes
+from build_assistant.generative.model import DesignIR
+from build_assistant.generative.compiler import compile_design
+from build_assistant.core.invariants import InvariantError
+from build_assistant.generative.evaluator import ExprError
+
+MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
+MAX_ROUNDS = int(os.environ.get("DESIGN_MAX_ROUNDS", "5"))
+
+
+@dataclass
+class DesignResult:
+    ir: DesignIR | None
+    geo: object | None
+    converged: bool
+    rounds: list = field(default_factory=list)   # audit trail
+    error: str = ""
+
+
+class DesignAgent:
+    def __init__(self):
+        self.key = os.environ.get("ANTHROPIC_API_KEY")
+        self.base = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/")
+
+    @property
+    def live(self) -> bool:
+        return bool(self.key)
+
+    # ---------------------------------------------------------------- LLM
+    def _llm(self, system: str, user: str, max_tokens: int = 3000) -> str:
+        body = json.dumps({"model": MODEL, "max_tokens": max_tokens, "system": system,
+                           "messages": [{"role": "user", "content": user}]}).encode()
+        req = urllib.request.Request(self.base + "/v1/messages", data=body, method="POST",
+            headers={"content-type": "application/json", "x-api-key": self.key,
+                     "anthropic-version": "2023-06-01"})
+        with urllib.request.urlopen(req, timeout=90) as r:
+            data = json.loads(r.read())
+        return "".join(b.get("text", "") for b in data.get("content", []))
+
+    def _llm_json(self, system: str, user: str, max_tokens: int = 3000, tries: int = 2) -> dict:
+        last = ""
+        for _ in range(tries):
+            raw = self._llm(system, user + last, max_tokens)
+            a, b = raw.find("{"), raw.rfind("}")
+            if a >= 0 and b > a:
+                try:
+                    return json.loads(raw[a:b + 1])
+                except json.JSONDecodeError as e:
+                    last = f"\n\nYour previous reply was not valid JSON ({e}). Return ONLY valid JSON."
+            else:
+                last = "\n\nReturn ONLY a JSON object."
+        raise RuntimeError("model did not return valid JSON")
+
+    # ---------------------------------------------------------------- catalog context
+    def _catalog(self) -> str:
+        mats = "\n".join(
+            f"  {m.id}: {m.display_name}, actual_thickness={m.actual_thickness}, "
+            f"stock={m.stock_sizes[0].w}x{m.stock_sizes[0].h}, category={m.category}"
+            for m in all_materials())
+        fins = "\n".join(f"  {f.id}: {f.display_name}, per_face_offset={f.per_face_offset}, "
+                         f"direction={f.direction}" for f in all_finishes())
+        return f"MATERIALS (choose by id):\n{mats}\n\nFINISH SYSTEMS (choose by id, or 'none'):\n{fins}"
+
+    _SCHEMA_DOC = """DesignIR JSON shape (the engine computes all numbers from your formulas):
+{
+ "name": str, "summary": str, "node_kind": str,
+ "params": [{"id": symbol, "label": str, "value": number_in_inches, "unit":"in",
+             "source":"user"|"default"|"derived", "basis": str}],
+ "materials": [{"role": str, "material_id": catalog_id}],
+ "finish_id": catalog_finish_id_or_"none",
+ "elements": [{"id": str, "kind": str, "length_expr": expr, "width_expr": expr,
+               "height_expr": expr, "z_base_expr": expr, "stacks_height": bool,
+               "faces": [{"name":"top|bottom|left|right|front|back","exposed":bool,"finished":bool}]}],
+ "parts": [{"id":"A","name": str, "element": element_id, "material_role": role,
+            "length_expr": expr, "width_expr": expr, "qty_expr": expr,
+            "grain":"length|width|none",
+            "finished_faces_len": 0-2, "finished_faces_wid": 0-2, "joint": str}],
+ "invariants": [{"kind":"span","params":{"name":str,"unsupported_span":expr,"flex_threshold":number}},
+                {"kind":"backing","params":{"name":str,"surface_width":expr,"backing_width":expr}}],
+ "derived": [{"label":str,"value":str,"basis":str,"is_overridable":bool}],
+ "operations": [str], "fasteners": [{"fastener_id":str,"seam_expr":expr,"spacing":number}],
+ "warnings": [str]
+}
+EXPRESSIONS: arithmetic over param ids and material symbols only. For a material
+role R you may use `R_t` (actual thickness), `R_sw`/`R_sh` (stock size). Allowed:
++ - * / , parentheses, min/max/ceil/floor/round/abs. NEVER write a bare final
+dimension as a literal unless it is a genuine constant (e.g. a 1/4 setback).
+RULES: parts must be cuttable from the chosen material's stock. Use joinery that
+makes sense (butt/dado/pocket). Mark finished_faces_* only for faces that get the
+finish. For any unsupported shelf/panel add a span invariant whose flex_threshold
+is the MAX span in INCHES the material can hold without sagging (3/4 plywood/solid
+shelf ~ 30-36; thinner stock less). Never set a tiny threshold. Include a back
+panel or diagonal brace on tall casework so it can't rack, and list fasteners.
+Keep it genuinely buildable."""
+
+    # ---------------------------------------------------------------- synthesize
+    def synthesize(self, description: str, answers: dict) -> DesignIR:
+        system = ("You are a furniture/DIY design engineer. You output a parametric build "
+                  "model as JSON. You never compute final dimensions yourself — you write "
+                  "formulas over parameters; a deterministic engine evaluates them. Design "
+                  "something actually buildable from the given catalog.")
+        user = (f"{self._catalog()}\n\n{self._SCHEMA_DOC}\n\n"
+                f"USER WANTS: {description}\n"
+                f"Known parameters (inches): {json.dumps(answers)}\n"
+                "Author the full DesignIR. Use the known parameters; add sensible "
+                "defaults (source='default') for any other dimension the build needs, "
+                "each with a short basis. Return ONLY the JSON.")
+        return DesignIR.from_dict(self._llm_json(system, user, 6000))
+
+    # ---------------------------------------------------------------- critique
+    def critique(self, ir: DesignIR, geo, error: str) -> dict:
+        parts = [{"id": p.id, "name": p.name, "cut": list(p.cut_wh()), "qty": p.qty,
+                  "material": p.material_id} for p in (geo.parts if geo else [])]
+        system = ("You are a shop foreman reviewing the ARCHITECTURE of a build before "
+                  "anyone cuts. A deterministic engine already computed and verified every "
+                  "part dimension (fit to stock, positive size, joinery thickness). TRUST "
+                  "those numbers — do NOT recompute or second-guess any dimension; a part that "
+                  "is a board-thickness smaller than the outside is correct joinery.")
+        user = (f"Design: {ir.node_kind} — {ir.summary}\n"
+                f"Parts (dimensions already verified by the engine): {json.dumps(parts)}\n"
+                f"Engine error (if any): {error or 'none'}\n"
+                "Judge only STRUCTURE and COMPLETENESS: is a structural part missing (back "
+                "panel or brace against racking, cleats, shelf supports, fasteners)? is the "
+                "material wrong for the load/use? is any shelf/panel span too long to hold its "
+                "load? would it be unstable or unsafe? does the assembly actually work?\n"
+                "Do NOT flag dimensions, fractions, or off-by-a-thickness values — those are the "
+                "engine's and are correct. Only flag things a builder would actually hit.\n"
+                "SEVERITY: 'high' = won't build / will fail / unsafe. 'med'/'low' = improvement.\n"
+                'Return JSON {"issues":[{"severity":"high|med|low","what":str,"fix_hint":str}],'
+                '"buildable": bool}. Empty issues if the architecture is sound.')
+        try:
+            return self._llm_json(system, user, 1200)
+        except Exception:  # noqa: BLE001
+            return {"issues": [], "buildable": True}
+
+    # ---------------------------------------------------------------- repair
+    def repair(self, ir: DesignIR, issues: list, error: str) -> DesignIR:
+        system = ("You revise a parametric build model to fix the listed problems. Keep the "
+                  "same JSON shape. Change only what's needed. The engine computes numbers "
+                  "from your formulas.")
+        user = (f"{self._catalog()}\n\n{self._SCHEMA_DOC}\n\n"
+                f"Current model:\n{json.dumps(ir.to_dict())}\n\n"
+                f"Engine error: {error or 'none'}\n"
+                f"Issues to fix: {json.dumps(issues)}\n"
+                "Return the full corrected DesignIR JSON only.")
+        return DesignIR.from_dict(self._llm_json(system, user, 6000))
+
+    # ---------------------------------------------------------------- the loop
+    def design(self, description: str, answers: dict, max_rounds: int = MAX_ROUNDS) -> DesignResult:
+        trail = []
+        try:
+            ir = self.synthesize(description, answers)
+        except Exception as exc:  # noqa: BLE001
+            return DesignResult(None, None, False, trail, f"synthesis failed: {exc}")
+
+        geo, error = self._try_compile(ir)
+        trail.append({"round": 0, "action": "synthesize", "error": error,
+                      "parts": geo.piece_count() if geo else 0})
+
+        for r in range(1, max_rounds + 1):
+            crit = self.critique(ir, geo, error)
+            issues = crit.get("issues", [])
+            blocking = [i for i in issues if i.get("severity") == "high"]
+            trail.append({"round": r, "action": "critique", "error": error,
+                          "issues": issues, "buildable": crit.get("buildable", bool(geo))})
+            # Converged: compiles clean, invariants hold, no HIGH-severity issues left.
+            # Remaining med/low notes are attached as warnings, not blockers.
+            if geo and not error and not blocking:
+                for i in issues:
+                    note = i.get("what", "")
+                    if note and note not in ir.warnings:
+                        ir.warnings.append(note)
+                return DesignResult(ir, geo, True, trail)
+            try:
+                ir = self.repair(ir, issues or [{"what": error, "fix_hint": "make it compile"}], error)
+            except Exception as exc:  # noqa: BLE001
+                trail.append({"round": r, "action": "repair_failed", "error": str(exc)})
+                break
+            geo, error = self._try_compile(ir)
+            trail.append({"round": r, "action": "repair", "error": error,
+                          "parts": geo.piece_count() if geo else 0})
+
+        converged = geo is not None and not error
+        return DesignResult(ir, geo, converged, trail,
+                            "" if converged else (error or "did not fully converge in budget"))
+
+    def _try_compile(self, ir: DesignIR):
+        """Build the geometry (parts/numbers) even if an invariant fails, so the
+        critique sees the real cut list plus the exact violation."""
+        from build_assistant.core.invariants import check_invariants
+        try:
+            geo = compile_design(ir, check=False)     # numbers always computed
+        except (ExprError, ValueError, KeyError, ZeroDivisionError) as exc:
+            return None, f"{type(exc).__name__}: {exc}"   # could not build at all
+        try:
+            check_invariants(geo)
+            return geo, ""
+        except InvariantError as exc:
+            return geo, f"InvariantError: {exc}"          # geo kept, violation reported
