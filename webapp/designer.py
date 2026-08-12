@@ -133,6 +133,12 @@ For qty>1 parts that repeat (e.g. shelves up the height), set step_x/y/z to the
 spacing between instances. Placement must form the actual assembled object — the
 engine draws plan, elevations and an exploded view from these boxes, so get them
 right (a side panel is thin in x, a shelf thin in z, a back thin in y).
+Every part must sit INSIDE the object and touch what it fastens to. step_x/y/z
+repeats a part along ONE direction only: shelves that stack repeat up z with
+step_z, and if a design has shelves in two bays those are two separate parts, not
+one part stepped sideways out of the case. Never step a part past the outside of
+the piece. Two solid parts must not occupy the same space — a shelf spans BETWEEN
+the sides (or into a dado by its depth), never through them.
 JOINERY: set joint_type on the member that RECEIVES a machined cut (the housing) —
 the side panel that carries a dado for a shelf, the panel with a rabbet for a
 back. Give joint_depth_expr for that cut (a third of the housing thickness is
@@ -297,6 +303,14 @@ Keep it genuinely buildable."""
                           "parts": geo.piece_count() if geo else 0})
 
         converged = geo is not None and not error
+        if geo is not None and error.startswith("PlacementError"):
+            # budget spent with placement defects still present: publish them in the
+            # packet's design notes rather than shipping a drawing that lies
+            from build_assistant.generative.audit import audit_placement
+            for msg in audit_placement(geo)[:4]:
+                note = "Unresolved by the design loop: " + msg
+                if note not in ir.warnings:
+                    ir.warnings.append(note)
         return DesignResult(ir, geo, converged, trail,
                             "" if converged else (error or "did not fully converge in budget"))
 
@@ -310,6 +324,13 @@ Keep it genuinely buildable."""
             return None, f"{type(exc).__name__}: {exc}"   # could not build at all
         try:
             check_invariants(geo)
-            return geo, ""
         except InvariantError as exc:
             return geo, f"InvariantError: {exc}"          # geo kept, violation reported
+        # A design can satisfy every invariant and still not be an object: parts
+        # placed outside the piece, floating free, or passing through each other.
+        # Audit the placement and hand the exact defect back for repair.
+        from build_assistant.generative.audit import audit_placement
+        issues = audit_placement(geo)
+        if issues:
+            return geo, "PlacementError: " + " | ".join(issues[:4])
+        return geo, ""
