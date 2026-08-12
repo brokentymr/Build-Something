@@ -20,6 +20,15 @@ def test_evaluator_arithmetic():
     print("  [ok] evaluator computes formulas over the symbol table")
 
 
+def test_evaluator_does_a_diagonal():
+    """A firewood rack asked for a brace and the design failed outright: the
+    whitelist could not express a hypotenuse."""
+    env = {"depth": 12.0, "rise": 16.0}
+    assert evaluate("sqrt(depth*depth + rise*rise)", env) == 20.0
+    assert evaluate("hypot(depth, rise)", env) == 20.0
+    print("  [ok] a diagonal member can be expressed")
+
+
 def test_evaluator_rejects_unsafe():
     for bad in ("__import__('os')", "open('x')", "width.__class__", "(1).__add__(2)", "a and b"):
         try:

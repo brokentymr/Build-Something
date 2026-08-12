@@ -127,7 +127,8 @@ class DesignAgent:
 }
 EXPRESSIONS: arithmetic over param ids and material symbols only. For a material
 role R you may use `R_t` (actual thickness), `R_sw`/`R_sh` (stock size). Allowed:
-+ - * / , parentheses, min/max/ceil/floor/round/abs. NEVER write a bare final
++ - * / , parentheses, min/max/ceil/floor/round/abs/sqrt/hypot (a diagonal
+brace is hypot(run, rise)). NEVER write a bare final
 dimension as a literal unless it is a genuine constant (e.g. a 1/4 setback).
 SECTIONS: name 1-2 sections that show what a builder most needs to see, each with
 the axis its cutting plane is normal to, where along that axis to cut, and WHY

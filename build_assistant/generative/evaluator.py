@@ -3,7 +3,8 @@
 The agent writes formulas like ``width - 2*carcass_t``; this evaluates them over a
 symbol table of parameters (in inches) and catalog-derived material symbols. Only
 a whitelist of AST nodes is permitted — numbers, names, + - * /, unary minus, and
-a few functions (min/max/ceil/floor/round/abs). No attribute access, no calls to
+a few functions (min/max/ceil/floor/round/abs/sqrt/hypot). No attribute access,
+no calls to
 anything else, no arbitrary code. This is what keeps Law 1 true while letting the
 model supply relationships: the model never runs, and never emits a number.
 """
@@ -13,8 +14,13 @@ from __future__ import annotations
 import ast
 import math
 
+# A diagonal brace is a hypotenuse, and a firewood rack asked for one: the design
+# loop failed outright on `sqrt(depth*depth + rise*rise)` because the whitelist had
+# no way to express it. Both are pure, total on the domain the guard allows, and
+# neither reaches outside the expression.
 _FUNCS = {"min": min, "max": max, "abs": abs,
-          "ceil": math.ceil, "floor": math.floor, "round": round}
+          "ceil": math.ceil, "floor": math.floor, "round": round,
+          "sqrt": math.sqrt, "hypot": math.hypot}
 _BINOPS = {ast.Add: lambda a, b: a + b, ast.Sub: lambda a, b: a - b,
            ast.Mult: lambda a, b: a * b, ast.Div: lambda a, b: a / b,
            ast.Mod: lambda a, b: a % b, ast.Pow: lambda a, b: a ** b}
