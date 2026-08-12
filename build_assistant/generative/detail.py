@@ -366,8 +366,11 @@ def predrill_chart(geo: Geometry) -> Canvas | None:
         # screw profile drawn to scale (1in = 46px)
         sc = 46.0
         x0 = 200.0
-        c.line(x0, y, x0 + f.length * sc, y, 2.2, color="#7a3f22")
-        c.polygon([(x0, y - 5), (x0, y + 5), (x0 - 7, y)], fill="#7a3f22", sw=0.6)
+        tip = x0 + f.length * sc
+        c.line(x0, y, tip, y, 2.2, color="#7a3f22")          # shank
+        c.line(x0, y - 5.5, x0, y + 5.5, 2.4, color="#7a3f22")  # head, left
+        c.polygon([(tip - 8, y - 4), (tip - 8, y + 4), (tip, y)],
+                  fill="#7a3f22", sw=0.6)                    # point, right
         c.dim_horizontal(x0, x0 + f.length * sc, y + 18, fmt_inches(f.length))
         bits = []
         if f.pilot_diameter:
