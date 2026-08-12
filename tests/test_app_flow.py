@@ -119,3 +119,19 @@ def test_photos_reach_the_model_as_images():
     assert len(blocks) == 1
     assert blocks[0]["source"]["media_type"] == "image/jpeg"
     print("  [ok] inspiration photos are passed to the model, unusable ones dropped")
+
+
+def test_a_project_with_no_resolved_node_is_the_agents_to_build():
+    """A description that only reached disambiguation left the project with no
+    node, and generate then ran the curated completeness audit on it and 500'd."""
+    from webapp import server
+    store = _store()
+    server.STORE = store
+    pid = store.create_project(None, "something unusual")
+    assert store.answers(pid).get("node") is None
+    res = server.do_generate(pid)
+    assert res.get("started") is True, res
+    assert store.answers(pid)["node"] == server.GENERATIVE
+    job = store.job(pid)
+    assert job and job["status"] in ("running", "failed", "done")
+    print("  [ok] an unresolved project is designed rather than crashing generate")

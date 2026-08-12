@@ -190,8 +190,10 @@ def do_intake(pid: str, text: str) -> dict:
         if report.node:
             options.append({"value": report.node, "note": REG.schema(report.node)["display_name"]})
         if options:
+            STORE.set_node(pid, GENERATIVE)
             return {"outcome": "disambiguate", "message":
-                    "That maps to more than one thing — which did you mean?", "options": options}
+                    "That maps to more than one thing — which did you mean?",
+                    "options": options}
     # A template is an offer, never an assumption. "A shoe bench with a lower
     # shelf" keyword-matched the floating shelf and would have been built as one —
     # the exact failure the design agent exists to end. When a template looks like
@@ -256,6 +258,13 @@ def do_generate(pid: str) -> dict:
     follows the job."""
     answers = STORE.answers(pid)
     node = answers.get("node")
+    if node not in REG.all_leaves():
+        # Anything that is not a registered template is the agent's to design —
+        # including a project that never resolved to one. Running the curated
+        # completeness audit on it raised a KeyError and 500'd the request.
+        node = GENERATIVE
+        if answers.get("node") != GENERATIVE:
+            STORE.set_node(pid, GENERATIVE)
     if node != GENERATIVE:
         # Measure 2: completeness audit (two judges) before we solve/cut.
         approved, audit = AGENT.audit_ready(
@@ -284,7 +293,7 @@ def _run_generation(pid: str) -> None:
     try:
         answers = STORE.answers(pid)
         node = answers.get("node")
-        if node == GENERATIVE:
+        if node not in REG.all_leaves():
             geo, packet = _design_generatively(pid, answers, say)
         else:
             say("designing", "solving the geometry")
