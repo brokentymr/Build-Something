@@ -139,7 +139,13 @@ def exploded(geo: Geometry) -> Canvas:
     names = {p.id: p.name for p in geo.parts}
     qty = {p.id: p.qty for p in geo.parts}
     ids = [p.id for p in geo.parts]
-    cols = 3 if len(ids) > 8 else 2
+    # Balloons carry an ITEM NUMBER, not the part id — ids can be long words and
+    # would burst the balloon. The same number keys the legend and the cut list.
+    item_no = item_numbers(geo)
+    legend_text = {pid: names.get(pid, "") + (f"  ×{qty[pid]}" if qty.get(pid, 1) > 1 else "")
+                   for pid in ids}
+    longest = max((len(t) for t in legend_text.values()), default=1)
+    cols = 3 if (len(ids) > 8 and longest <= 26) else (2 if longest <= 42 else 1)
     rows_n = -(-len(ids) // cols)
     legend_h = 26.0 + rows_n * 13.0
     draw_h = 350.0
@@ -200,7 +206,7 @@ def exploded(geo: Geometry) -> Canvas:
         by = min(max(by, r + 16), draw_h - r - 2)
         if abs(bx - ax) + abs(by - ay) > 3:
             c.line(ax, ay, bx, by, 0.5, color="#7a746a")
-        c.balloon(bx, by, pid)
+        c.balloon(bx, by, str(item_no.get(pid, "?")))
 
     # legend grid beneath the view
     ly0 = draw_h + 12.0
@@ -210,15 +216,19 @@ def exploded(geo: Geometry) -> Canvas:
         col, row = i % cols, i // cols
         lx = pad + col * colw
         ty = ly0 + 10 + row * 13.0
-        c.balloon(lx + 6, ty - 3.2, pid, r=6.0)
-        label = names.get(pid, "")
-        if qty.get(pid, 1) > 1:
-            label += f"  ×{qty[pid]}"
-        maxchars = int((colw - 20) / (7.6 * 0.55))
+        c.balloon(lx + 6, ty - 3.2, str(item_no.get(pid, "?")), r=6.0)
+        label = legend_text[pid]
+        maxchars = int((colw - 22) / (7.6 * 0.55))
         if len(label) > maxchars:
             label = label[: max(1, maxchars - 1)] + "…"
-        c.text(lx + 15, ty, label, size=7.6, anchor="start", color="#3a352c")
+        c.text(lx + 16, ty, label, size=7.6, anchor="start", color="#3a352c")
     return c
+
+
+def item_numbers(geo: Geometry) -> dict[str, int]:
+    """Stable 1-based item number per part — the key shared by the exploded
+    balloons, the legend and the cut list."""
+    return {p.id: i + 1 for i, p in enumerate(geo.parts)}
 
 
 def _darken(hex_c, f):

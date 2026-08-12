@@ -119,11 +119,13 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
             pass
 
     # ---------- CUT LIST ----------
-    B("h_cut", "header", _h("Cut list", "quoted as-cut"))
-    cut = [[p.id, _e(p.name), f"{fmt_inches(p.cut_wh()[0])} &times; {fmt_inches(p.cut_wh()[1])}",
+    B("h_cut", "header", _h("Cut list", "quoted as-cut · item nos. match the balloons"))
+    items = gdraw.item_numbers(geo)
+    cut = [[str(items.get(p.id, "")), _e(p.name),
+            f"{fmt_inches(p.cut_wh()[0])} &times; {fmt_inches(p.cut_wh()[1])}",
             str(p.qty), _e(p.material_id.replace('_', ' ')),
             f'<span class="agent-note">{_e(p.joint)}</span>'] for p in geo.parts]
-    B("cut", "table", _table(["ID", "Part", "As-cut", "Qty", "Material", "Joint"], cut))
+    B("cut", "table", _table(["Item", "Part", "As-cut", "Qty", "Material", "Joint"], cut))
 
     # ---------- SHEET LAYOUTS ----------
     B("h_sheet", "header", _h("Stock layouts, yield and waste"))
