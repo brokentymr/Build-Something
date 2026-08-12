@@ -268,3 +268,14 @@ def test_plan_reads_as_a_cut_not_a_lid():
     assert dashed, "the top and shelves must draw as outlines in a plan"
     assert solid, "the side panels and back must still read solid"
     print(f"  [ok] plan draws {len(dashed)} surfaces as outlines, walls stay solid")
+
+
+def test_side_elevation_strikes_hidden_shelves_back_in():
+    """The side of a closed case is one blank panel; a builder cannot see where the
+    shelves land. Parts hidden behind a nearer one are drawn dashed."""
+    import re
+    from build_assistant.generative.draw import side_elevation
+    svg = side_elevation(_geo()).render()
+    hidden = re.findall(r'<rect[^>]*stroke="#8b857a"[^>]*dasharray', svg)
+    assert hidden, "hidden shelf lines must be struck back in"
+    print(f"  [ok] side elevation shows {len(hidden)} hidden edge(s) dashed")

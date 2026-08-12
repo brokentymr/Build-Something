@@ -80,6 +80,7 @@ def _ortho(geo: Geometry, ax: str, ay: str, title: str, hgt=None) -> Canvas:
             if flat and b["w"] * b["d"] >= 0.4 * footprint:
                 outline_only.add(id(b))
 
+    placed = []
     for i, b in enumerate(sorted(boxes, key=depth_key)):
         bx = (b[aw] - span[ax][0]) * s
         by = (b[ahp] - span[ay][0]) * s
@@ -91,6 +92,22 @@ def _ortho(geo: Geometry, ax: str, ay: str, title: str, hgt=None) -> Canvas:
             c.rect(px, py, rw, rh, fill="none", sw=0.9, dash="5,3")
         else:
             c.rect(px, py, rw, rh, fill=shade.get(b["id"], _SHADES[0]), sw=0.9)
+        placed.append((px, py, rw, rh))
+
+    # Hidden lines. The side of a closed case is one blank panel, and a builder
+    # cannot see where the shelves land. A part completely covered by something
+    # nearer is struck back in dashed, the way a drawing shows what is behind.
+    if view in ("x", "y"):
+        seen_lines = set()
+        for i, (px, py, rw, rh) in enumerate(placed):
+            covered = any(
+                qx <= px + 0.5 and qy <= py + 0.5
+                and qx + qw >= px + rw - 0.5 and qy + qh >= py + rh - 0.5
+                for qx, qy, qw, qh in placed[i + 1:])
+            key = (round(px, 1), round(py, 1), round(rw, 1), round(rh, 1))
+            if covered and key not in seen_lines:
+                seen_lines.add(key)
+                c.rect(px, py, rw, rh, fill="none", stroke="#8b857a", sw=0.7, dash="4,3")
     # overall dimensions — horizontal below, vertical in the left gutter (rotated)
     c.dim_horizontal(ox, ox + real_w * s, oy + 22, fmt_inches(real_w))
     y0 = (oy - real_h * s) if invert else (MARGIN + 16)
