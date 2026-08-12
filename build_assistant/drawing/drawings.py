@@ -221,7 +221,9 @@ def nesting_diagram(nest: NestResult, sheet_index: int) -> Canvas:
     title = (f"{nest.material_id} — sheet {sheet_index} "
              f"({sheet.utilisation()*100:.1f}% used)"
              + (" · not to scale, board shown lengthwise" if landscape else ""))
-    c = Canvas(W, min(760.0, W * sh / sw + 40), title=title, stage="as_cut")
+    # Natural aspect (CSS max-height scales the display); capping here would push
+    # full-scale geometry past the viewBox.
+    c = Canvas(W, W * sh / sw + 40, title=title, stage="as_cut")
     s = (W - 20) / sw
     oy = 30.0
     c.rect(10, oy, sw * s, sh * s, sw=1.3)
