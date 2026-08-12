@@ -28,6 +28,14 @@ CREATE TABLE IF NOT EXISTS photos (
   id TEXT PRIMARY KEY, project_id TEXT, mime TEXT, data_url TEXT,
   caption TEXT, created REAL
 );
+CREATE TABLE IF NOT EXISTS jobs (
+  project_id TEXT PRIMARY KEY, status TEXT, phase TEXT, detail TEXT,
+  step INTEGER DEFAULT 0, total INTEGER DEFAULT 0, error TEXT DEFAULT '',
+  created REAL, updated REAL
+);
+CREATE TABLE IF NOT EXISTS questions (
+  project_id TEXT PRIMARY KEY, turns_json TEXT, created REAL
+);
 CREATE TABLE IF NOT EXISTS documents (
   project_id TEXT, version INTEGER, pages INTEGER, gates_json TEXT,
   html_path TEXT, pdf_path TEXT, summary_json TEXT, created REAL,
@@ -175,3 +183,54 @@ class Store:
             "SELECT * FROM documents WHERE project_id=? ORDER BY version DESC LIMIT 1",
             (pid,)).fetchone()
         return dict(row) if row else None
+
+
+    # ---- generation jobs -------------------------------------------------
+    # A curated build renders in about four seconds; an agent-authored one takes
+    # minutes of design rounds. Generation therefore runs off the request, and the
+    # phase written here is what the progress screen reads — the real one, not a
+    # timer.
+
+    def start_job(self, pid: str, total: int) -> None:
+        self._c.execute(
+                "INSERT INTO jobs (project_id,status,phase,detail,step,total,error,"
+                "created,updated) VALUES (?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(project_id) DO UPDATE SET status=excluded.status, "
+                "phase=excluded.phase, detail='', step=0, total=excluded.total, "
+                "error='', updated=excluded.updated",
+                (pid, "running", "starting", "", 0, total, "", _now(), _now()))
+        self._c.commit()
+
+    def set_job_phase(self, pid: str, phase: str, detail: str = "",
+                      step: int | None = None) -> None:
+        if step is None:
+            self._c.execute("UPDATE jobs SET phase=?, detail=?, step=step+1, updated=? "
+                          "WHERE project_id=?", (phase, detail, _now(), pid))
+        else:
+            self._c.execute("UPDATE jobs SET phase=?, detail=?, step=?, updated=? "
+                          "WHERE project_id=?", (phase, detail, step, _now(), pid))
+        self._c.commit()
+
+    def finish_job(self, pid: str, error: str = "") -> None:
+        self._c.execute("UPDATE jobs SET status=?, phase=?, error=?, updated=? "
+                      "WHERE project_id=?",
+                      ("failed" if error else "done",
+                       "failed" if error else "done", error, _now(), pid))
+        self._c.commit()
+
+    def job(self, pid: str) -> dict | None:
+        row = self._c.execute("SELECT * FROM jobs WHERE project_id=?", (pid,)).fetchone()
+        return dict(row) if row else None
+
+    # ---- agent-authored question set --------------------------------------
+
+    def save_questions(self, pid: str, turns: list) -> None:
+        self._c.execute("INSERT INTO questions (project_id,turns_json,created) VALUES (?,?,?) "
+                      "ON CONFLICT(project_id) DO UPDATE SET turns_json=excluded.turns_json",
+                      (pid, json.dumps(turns), _now()))
+        self._c.commit()
+
+    def questions(self, pid: str) -> list:
+        row = self._c.execute("SELECT turns_json FROM questions WHERE project_id=?",
+                            (pid,)).fetchone()
+        return json.loads(row["turns_json"]) if row else []

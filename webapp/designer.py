@@ -59,9 +59,16 @@ class DesignAgent:
         return bool(self.key)
 
     # ---------------------------------------------------------------- LLM
-    def _llm(self, system: str, user: str, max_tokens: int = 3000) -> str:
+    def _llm(self, system: str, user: str, max_tokens: int = 3000,
+             images: list | None = None) -> str:
+        # Inspiration photos ride with the text as image blocks. They were being
+        # collected and never looked at, which made the app's own promise —
+        # "this shapes the finish and proportions" — untrue.
+        content: list | str = user
+        if images:
+            content = [*_image_blocks(images), {"type": "text", "text": user}]
         body = json.dumps({"model": MODEL, "max_tokens": max_tokens, "system": system,
-                           "messages": [{"role": "user", "content": user}]}).encode()
+                           "messages": [{"role": "user", "content": content}]}).encode()
         req = urllib.request.Request(self.base + "/v1/messages", data=body, method="POST",
             headers={"content-type": "application/json", "x-api-key": self.key,
                      "anthropic-version": "2023-06-01"})
@@ -69,10 +76,11 @@ class DesignAgent:
             data = json.loads(r.read())
         return "".join(b.get("text", "") for b in data.get("content", []))
 
-    def _llm_json(self, system: str, user: str, max_tokens: int = 3000, tries: int = 2) -> dict:
+    def _llm_json(self, system: str, user: str, max_tokens: int = 3000, tries: int = 2,
+                  images: list | None = None) -> dict:
         last = ""
         for _ in range(tries):
-            raw = self._llm(system, user + last, max_tokens)
+            raw = self._llm(system, user + last, max_tokens, images=images)
             a, b = raw.find("{"), raw.rfind("}")
             if a >= 0 and b > a:
                 try:
@@ -155,7 +163,8 @@ panel or diagonal brace on tall casework so it can't rack, and list fasteners.
 Keep it genuinely buildable."""
 
     # ---------------------------------------------------------------- synthesize
-    def synthesize(self, description: str, answers: dict) -> DesignIR:
+    def synthesize(self, description: str, answers: dict,
+                   photos: list | None = None) -> DesignIR:
         system = ("You are a furniture/DIY design engineer. You output a parametric build "
                   "model as JSON. You never compute final dimensions yourself — you write "
                   "formulas over parameters; a deterministic engine evaluates them. Design "
@@ -163,10 +172,13 @@ Keep it genuinely buildable."""
         user = (f"{self._catalog()}\n\n{self._SCHEMA_DOC}\n\n"
                 f"USER WANTS: {description}\n"
                 f"Known parameters (inches): {json.dumps(answers)}\n"
-                "Author the full DesignIR. Use the known parameters; add sensible "
+                + ("The attached photos are what they want it to look like. Read the "
+                   "proportions, materials and finish from them and design to that, "
+                   "noting in `warnings` what you took from them.\n" if photos else "")
+                + "Author the full DesignIR. Use the known parameters; add sensible "
                 "defaults (source='default') for any other dimension the build needs, "
                 "each with a short basis. Return ONLY the JSON.")
-        return DesignIR.from_dict(self._llm_json(system, user, 6000))
+        return DesignIR.from_dict(self._llm_json(system, user, 6000, images=photos))
 
     # ---------------------------------------------------------------- critique
     def critique(self, ir: DesignIR, geo, error: str) -> dict:
@@ -204,7 +216,7 @@ Keep it genuinely buildable."""
                 f"Engine error: {error or 'none'}\n"
                 f"Issues to fix: {json.dumps(issues)}\n"
                 "Return the full corrected DesignIR JSON only.")
-        return DesignIR.from_dict(self._llm_json(system, user, 6000))
+        return DesignIR.from_dict(self._llm_json(system, user, 6000, images=photos))
 
     # ---------------------------------------------------------------- packet authoring
     _PACKET_SCHEMA = {
@@ -328,10 +340,52 @@ Keep it genuinely buildable."""
         return obj
 
     # ---------------------------------------------------------------- the loop
-    def design(self, description: str, answers: dict, max_rounds: int = MAX_ROUNDS) -> DesignResult:
+    # ---------------------------------------------------------------- questions
+    _QUESTION_RULES = (
+        "Ask only what you cannot safely assume. Every question must change the "
+        "design if answered differently — never ask for something already stated, "
+        "and never ask a question whose answer you would ignore.\n"
+        "Order matters: overall size first, then how it is used and where it lives, "
+        "then material and finish, then the details that depend on those.\n"
+        "Prefer CHOICE questions with 2-4 concrete options a non-expert can pick "
+        "between. Use NUMBER only for dimensions, and give tappable presets in the "
+        "unit stated. Keep each prompt one short sentence in plain language — no "
+        "jargon, no compound questions."
+    )
+
+    def plan_questions(self, description: str, photos: list | None = None) -> list:
+        """The tailored question set for an arbitrary build.
+
+        A curated node carries a hand-written question graph. An open-domain build
+        has none, so the agent writes one for this object: the questions a maker
+        would actually be asked before drawing it."""
+        system = ("You are an experienced maker scoping a build with someone before "
+                  "you draw anything. You ask the fewest questions that let you "
+                  "design the thing they want, and no others.")
+        user = (
+            f"They want to build: {description}\n"
+            + ("Inspiration photos are attached — read the style, proportions and "
+               "materials from them and do NOT ask about what they already show.\n"
+               if photos else "")
+            + f"\n{self._QUESTION_RULES}\n\n"
+            "Return JSON:\n"
+            '{"turns": [{"questions": [{"id": short_symbol, "field": short_symbol,\n'
+            '   "prompt": str, "type": "choice"|"number", "unit": "in"|"",\n'
+            '   "required": bool, "explain": one sentence on why it matters,\n'
+            '   "options": [{"value": symbol, "label": str}],\n'
+            '   "presets": [numbers]}]}]}\n'
+            "3-5 turns, AT MOST 3 questions per turn. 'options' only for choice, "
+            "'presets' only for number. Return ONLY the JSON.")
+        out = self._llm_json(system, user, 3000, images=photos)
+        return _clean_turns(out.get("turns") or [])
+
+    def design(self, description: str, answers: dict, max_rounds: int = MAX_ROUNDS,
+               photos: list | None = None, progress=None) -> DesignResult:
         trail = []
+        say = progress or (lambda *a, **k: None)
+        say("designing", "drafting the first design")
         try:
-            ir = self.synthesize(description, answers)
+            ir = self.synthesize(description, answers, photos=photos)
         except Exception as exc:  # noqa: BLE001
             return DesignResult(None, None, False, trail, f"synthesis failed: {exc}")
 
@@ -346,6 +400,7 @@ Keep it genuinely buildable."""
         best = (self._defect_count(geo, error), ir, geo, error)
 
         for r in range(1, max_rounds + 1):
+            say("reviewing", f"round {r} of {max_rounds} — checking the design holds up")
             crit = self.critique(ir, geo, error)
             issues = crit.get("issues", [])
             blocking = [i for i in issues if i.get("severity") == "high"]
@@ -359,6 +414,7 @@ Keep it genuinely buildable."""
                     if note and note not in ir.warnings:
                         ir.warnings.append(note)
                 return DesignResult(ir, geo, True, trail)
+            say("repairing", _repair_note(r, max_rounds, error, issues))
             try:
                 ir = self.repair(ir, issues or [{"what": error, "fix_hint": "make it compile"}], error)
             except Exception as exc:  # noqa: BLE001
@@ -420,3 +476,93 @@ Keep it genuinely buildable."""
         if issues:
             return geo, "PlacementError: " + " | ".join(issues[:4])
         return geo, ""
+
+
+# --------------------------------------------------------------------------
+# inspiration photos
+# --------------------------------------------------------------------------
+
+_MAX_PHOTOS = 4
+#: Anthropic accepts these image media types; anything else is dropped rather
+#: than sent and rejected mid-design.
+_IMAGE_TYPES = ("image/jpeg", "image/png", "image/gif", "image/webp")
+
+
+def _image_blocks(data_urls: list) -> list:
+    """Turn stored data: URLs into API image blocks, skipping anything unusable."""
+    blocks = []
+    for url in data_urls[:_MAX_PHOTOS]:
+        if not isinstance(url, str) or not url.startswith("data:"):
+            continue
+        try:
+            header, b64 = url.split(",", 1)
+            media = header.split(";")[0][5:]
+        except ValueError:
+            continue
+        if media not in _IMAGE_TYPES or not b64:
+            continue
+        blocks.append({"type": "image", "source": {
+            "type": "base64", "media_type": media, "data": b64}})
+    return blocks
+
+
+# --------------------------------------------------------------------------
+# agent-authored question sets
+# --------------------------------------------------------------------------
+
+_MAX_PER_TURN = 3          # the UI contract: never more than three at once
+_MAX_TURNS = 5
+
+
+def _clean_turns(turns: list) -> list:
+    """Validate and clamp an agent-authored question set.
+
+    The model writes these, so the app enforces its own contract rather than
+    trusting the shape: at most three questions a turn, a usable answer control on
+    every one, and no duplicate fields across the whole set."""
+    out, seen = [], set()
+    for turn in turns[:_MAX_TURNS]:
+        questions = []
+        for q in (turn.get("questions") or [])[:_MAX_PER_TURN]:
+            field = str(q.get("field") or q.get("id") or "").strip()
+            prompt = str(q.get("prompt") or "").strip()
+            if not field or not prompt or field in seen:
+                continue
+            qtype = "number" if q.get("type") == "number" else "choice"
+            options = [{"value": str(o.get("value", "")), "label": str(o.get("label", ""))}
+                       for o in (q.get("options") or [])
+                       if str(o.get("value", "")).strip()]
+            presets = [float(p) for p in (q.get("presets") or [])
+                       if isinstance(p, (int, float))]
+            # a choice with nothing to choose, or a number with no way to enter one,
+            # is a dead end on a phone — drop it rather than render it
+            if qtype == "choice" and len(options) < 2:
+                continue
+            seen.add(field)
+            questions.append({
+                "id": field, "field": field, "prompt": prompt, "type": qtype,
+                "unit": str(q.get("unit") or ("in" if qtype == "number" else "")),
+                "required": bool(q.get("required", True)),
+                "explain": str(q.get("explain") or ""),
+                "options": options if qtype == "choice" else [],
+                "numeric_presets": presets if qtype == "number" else [],
+                "tailored": True,
+            })
+        if questions:
+            out.append({"questions": questions})
+    return out
+
+
+def _repair_note(round_no: int, total: int, error: str, issues: list) -> str:
+    """What the progress screen says while a repair round runs.
+
+    The user is waiting minutes, so the line names the actual defect being fixed
+    rather than a generic 'working' — it is the only window into the loop."""
+    if error.startswith("PlacementError"):
+        return f"round {round_no}: parts do not fit together yet — adjusting placement"
+    if error.startswith("InvariantError"):
+        return f"round {round_no}: a part does not fit its stock — resizing"
+    high = [i.get("what", "") for i in (issues or []) if i.get("severity") == "high"]
+    if high:
+        return f"round {round_no}: {str(high[0])[:70]}"
+    return f"round {round_no} of {total}: refining the design"
