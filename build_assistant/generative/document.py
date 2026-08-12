@@ -42,6 +42,12 @@ def _split_notes(notes) -> list[str]:
     return out
 
 
+def _split_sentences(text: str) -> list[str]:
+    """One instruction per line, without breaking on decimals or abbreviations."""
+    parts = re.split(r"(?<=[a-z0-9\)\"])\.\s+(?=[A-Z])", str(text).strip())
+    return [p.strip().rstrip(".") for p in parts if len(p.strip()) > 3]
+
+
 def _human(text: str, geo: Geometry) -> str:
     """Replace internal part ids in agent prose with the part's real name.
 
@@ -210,7 +216,11 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
     # ---------- CARE ----------
     if packet.get("care"):
         B("h_care", "header", _h("Care and maintenance"))
-        B("care", "prose", f'<div class="agent-note"><p>{_e(_human(packet["care"], geo))}</p></div>')
+        # Care arrives as one long paragraph; a wall of semicolons is not something
+        # anyone reads standing in a workshop. One line per instruction.
+        care = [_e(x) for x in _split_sentences(_human(packet["care"], geo))]
+        B("care", "prose", '<div class="agent-note"><ul class="tight">'
+          + "".join(f"<li>{x}</li>" for x in care) + "</ul></div>")
 
     # ---------- DESIGN RECORD ----------
     B("h_rec", "header", _h("Design record", "inputs that generated this packet"))
