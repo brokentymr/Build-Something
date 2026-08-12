@@ -65,14 +65,40 @@ def test_contacts_found_and_deduped():
 
 
 def test_cross_section_cuts_real_parts():
-    c = cross_section(_geo(), "x")
+    geo = _geo()
+    c = cross_section(geo, "y")
     assert c is not None
     svg = c.render()
-    # the section must show the parts the plane passes through, labelled
-    for pid in ("A", "B", "D"):
-        assert pid in svg, f"section missing part {pid}"
+    # parts the plane passes through are labelled by name, keyed by item number
+    for name in ("left side", "shelf"):
+        assert name in svg, f"section missing {name!r}"
     assert not c.overflowing_labels() and not c.geometry_overflow()
     print("  [ok] cross-section cuts real parts, labelled, in bounds")
+
+
+def test_section_shows_machined_profile():
+    """A dado must read the same in the section as in the joint detail: the housed
+    part seated into its housing, not floating against it."""
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in spec["parts"]:
+        if p["id"] in ("A", "B"):
+            p["joint_type"] = "dado"
+            p["joint_depth_expr"] = "carcass_t/3"
+    geo = compile_design(DesignIR.from_dict(spec))
+    plain = compile_design(DesignIR.from_dict(_CASE))
+
+    def rect_sizes(g):
+        c = cross_section(g, "y")
+        import re
+        # capture the geometry attrs specifically (not stroke-width)
+        return sorted((round(float(m.group(1)), 2), round(float(m.group(2)), 2))
+                      for m in re.finditer(r'width="([\d.]+)" height="([\d.]+)"', c.render()))
+
+    seated, butt = rect_sizes(geo), rect_sizes(plain)
+    assert seated != butt, "seating a part in a dado must change the section geometry"
+    c = cross_section(geo, "y")
+    assert not c.overflowing_labels() and not c.geometry_overflow()
+    print("  [ok] section seats housed parts into their dado, in bounds")
 
 
 def test_joint_detail_has_fastener_and_pilot():

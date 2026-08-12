@@ -74,15 +74,22 @@ def _clip(s: str, cap: int) -> str:
 # --------------------------------------------------------------------------
 
 def best_cut(boxes, axis="x"):
-    """Cut position revealing the most parts (ties -> nearest the middle)."""
+    """Cut position that yields the most informative section.
+
+    Candidates are restricted to the interior of the piece. A plane grazing the
+    very back would technically cut the most parts — the back panel plus every
+    full-depth panel — but it stacks them all on one another and reads as a solid
+    mass. Cutting through the middle instead separates the carcass members, which
+    is what a section is for.
+    """
     lo_key, ext_key = AXES[axis]
     lo = min(b[lo_key] for b in boxes)
     hi = max(b[lo_key] + b[ext_key] for b in boxes)
     mid = (lo + hi) / 2
-    cands = []
-    for b in boxes:
-        cands.append(b[lo_key] + b[ext_key] / 2)
-    cands.append(mid)
+    span = hi - lo
+    inner_lo, inner_hi = lo + 0.2 * span, hi - 0.2 * span
+    cands = [b[lo_key] + b[ext_key] / 2 for b in boxes] + [mid]
+    cands = [v for v in cands if inner_lo <= v <= inner_hi] or [mid]
     best, best_score = mid, -1
     for c in sorted(set(round(v, 4) for v in cands)):
         n = sum(1 for b in boxes if b[lo_key] - 1e-6 < c < b[lo_key] + b[ext_key] + 1e-6)
@@ -127,26 +134,69 @@ def cross_section(geo: Geometry, axis: str = "x") -> Canvas | None:
     def sx(v): return ox + (v - hmin) * s
     def sy(v): return oy - (v - vmin) * s
 
+    # Machined joinery reads the same here as in the joint details: a part housed
+    # in a dado/rabbet is drawn seated into its housing by the cut depth, and the
+    # groove walls are struck in. Housing members draw first so the housed member
+    # sits over them.
+    joinery = geo.structure.get("joinery", {})
+    hit_ids = {b["id"] for b in hit}
+    seats: dict[str, list] = {}
+    if joinery:
+        for ct in find_contacts(geo):
+            ha_id, hb_id = ct["a"]["id"], ct["b"]["id"]
+            if ha_id not in hit_ids or hb_id not in hit_ids:
+                continue
+            hid = ha_id if ha_id in joinery else (hb_id if hb_id in joinery else None)
+            if not hid:
+                continue
+            housed = ct["b"] if hid == ha_id else ct["a"]
+            seats.setdefault(housed["id"], []).append(
+                {"at": ct["at"], "axis": ct["axis"], "depth": joinery[hid]["depth"]})
+
     seen = {}
-    for b in sorted(hit, key=lambda b: (b[vl], b[hl])):
-        x0, y0 = sx(b[hl]), sy(b[vl] + b[vk])
-        bw, bh = b[hk] * s, b[vk] * s
+    order = sorted(hit, key=lambda b: (b["id"] not in joinery, b[vl], b[hl]))
+    for b in order:
+        lo_h, hi_h = b[hl], b[hl] + b[hk]
+        lo_v, hi_v = b[vl], b[vl] + b[vk]
+        seated = 0.0
+        for st in seats.get(b["id"], []):
+            # extend the housed part into its groove along whichever in-plane
+            # axis the joint's contact normal runs
+            if st["axis"] == va:
+                seated = st["depth"]
+                if (b[vl] + b[vk] / 2) > st["at"]:
+                    lo_v -= seated
+                else:
+                    hi_v += seated
+            elif st["axis"] == ha:
+                seated = st["depth"]
+                if (b[hl] + b[hk] / 2) > st["at"]:
+                    lo_h -= seated
+                else:
+                    hi_h += seated
+        x0, y0 = sx(lo_h), sy(hi_v)
+        bw, bh = (hi_h - lo_h) * s, (hi_v - lo_v) * s
         mat = _mat_of(geo, b["id"])
         cat = mat.category if mat else "sheet_good"
-        c.rect(x0, y0, bw, bh, fill="#f4f0e6", sw=1.0)
+        c.rect(x0, y0, bw, bh, fill="#f4f0e6", sw=1.4)
         c.material_hatch(x0, y0, bw, bh, cat)
+        if seated > 0:                       # strike the groove walls
+            c.line(x0, y0, x0 + bw, y0, 1.0, color="#3a352c")
+            c.line(x0, y0 + bh, x0 + bw, y0 + bh, 1.0, color="#3a352c")
         seen.setdefault(b["id"], (x0 + bw / 2, y0 + bh / 2, b))
 
     # Leader labels in the right gutter. Sorted by the vertical position of their
     # TARGET, so leaders never cross each other, and evenly spaced so they never
     # collide with one another.
+    from .draw import item_numbers          # same keys as the balloons / cut list
+    items = item_numbers(geo)
     ids = sorted(seen.items(), key=lambda kv: kv[1][1])
     texts = []
     for pid, _ in ids:
         part = _part_of(geo, pid)
         mat = _mat_of(geo, pid)
         thick = fmt_inches(mat.nominal_thickness) if mat else ""
-        texts.append(f"{pid} · {part.name if part else pid} · {thick}")
+        texts.append(f"{items.get(pid, '?')} · {part.name if part else pid} · {thick}")
     fs, cap = _fit(texts)
     top, bot = MARGIN + 4, hgt - MARGIN + 4
     stepn = max(1, len(ids))
@@ -393,11 +443,14 @@ def predrill_chart(geo: Geometry) -> Canvas | None:
             used.append(f)
     if not used:
         return None
-    row_h = 52.0
+    sched = {str(f.get("fastener_id")): f.get("spacing") for f in geo.structure.get("fasteners", [])}
+    row_h = 74.0
     c = Canvas(W, 40 + row_h * len(used), stage="as_assembled",
                title="Pilot holes, countersinks and drivers")
     y = 42.0
     for f in used:
+        spacing = sched.get(f.id)
+        spacing = float(spacing) if isinstance(spacing, (int, float)) else None
         c.text(14, y - 8, f.display_name, size=10, anchor="start", weight="bold")
         # screw profile drawn to scale (1in = 46px)
         sc = 46.0
@@ -414,7 +467,21 @@ def predrill_chart(geo: Geometry) -> Canvas | None:
         if f.countersink_diameter:
             bits.append(f"c'sink {_frac(f.countersink_diameter)}")
         bits.append(f.driver_bit)
+        if spacing:
+            bits.append(f"{fmt_inches(spacing)} o.c.")
         c.text(14, y + 8, " · ".join(bits), size=8.5, anchor="start", color="#6a655b")
+        # spacing run: marks along a seam at the specified interval
+        if spacing:
+            rx, rw = 200.0, W - 240.0
+            ry = y + 30
+            c.line(rx, ry, rx + rw, ry, 0.9, color="#3a352c")
+            step = max(14.0, min(46.0, rw / 8))
+            n = int(rw // step)
+            for k in range(n + 1):
+                mx = rx + k * step
+                c.line(mx, ry - 4, mx, ry + 4, 0.8, color="#7a3f22")
+            if n >= 1:
+                c.dim_horizontal(rx, rx + step, ry + 16, fmt_inches(spacing))
         y += row_h
     return c
 
