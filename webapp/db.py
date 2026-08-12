@@ -63,9 +63,7 @@ class Store:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         self.path = path
         self._local = threading.local()
-        conn = self._c
-        conn.executescript(_SCHEMA)
-        conn.commit()
+        self._c                                  # build the schema up front
 
     @property
     def _c(self) -> sqlite3.Connection:
@@ -75,6 +73,14 @@ class Store:
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA busy_timeout=30000")
+            # Every connection brings its own schema. Applying it only in the
+            # constructing thread assumed the file would always already have it,
+            # and a database that went missing under a running server left every
+            # later thread answering "no such table: projects" — a 500 to every
+            # request. CREATE TABLE IF NOT EXISTS costs microseconds and removes
+            # the assumption.
+            conn.executescript(_SCHEMA)
+            conn.commit()
             self._local.conn = conn
         return conn
 

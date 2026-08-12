@@ -166,3 +166,36 @@ def test_the_store_survives_concurrent_use():
         t.join()
     assert not errors, errors[:3]
     print("  [ok] the store takes concurrent readers and writers without collapsing")
+
+
+def test_a_connection_brings_its_own_schema():
+    """The schema was applied once, in the constructing thread, on the assumption
+    the file would always already have it. A database that went missing under a
+    running server then answered "no such table: projects" to every later thread."""
+    import os
+    import threading
+    path = "out/_schema_probe.db"
+    for suffix in ("", "-wal", "-shm"):
+        if os.path.exists(path + suffix):
+            os.remove(path + suffix)
+    store = Store(path)
+    store.create_project(None, "before")
+
+    for suffix in ("", "-wal", "-shm"):        # the file goes away underneath it
+        if os.path.exists(path + suffix):
+            os.remove(path + suffix)
+
+    result = {}
+
+    def fresh_thread():
+        try:
+            result["pid"] = store.create_project(None, "after")
+        except Exception as exc:  # noqa: BLE001
+            result["error"] = f"{type(exc).__name__}: {exc}"
+
+    t = threading.Thread(target=fresh_thread)
+    t.start()
+    t.join()
+    assert "error" not in result, result["error"]
+    assert result.get("pid")
+    print("  [ok] a new connection creates the schema it needs")
