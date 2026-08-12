@@ -31,11 +31,21 @@ class LabelError(ValueError):
 
 
 def fmt_inches(value: float, denom: int = 64) -> str:
-    """Decimal inches -> architectural fraction string, e.g. 41.25 -> 41-1/4\"."""
+    """Decimal inches -> architectural fraction string, e.g. 41.25 -> 41-1/4\".
+
+    Snapped to the nearest 1/denom rather than to the closest rational under it.
+    ``limit_denominator`` is free to answer 20/21 or 1/13 — arithmetically the
+    better approximation, and useless at a bench, because no tape measure carries
+    thirteenths. Every fraction printed here has a power-of-two denominator, so it
+    can be found on a rule."""
     neg = value < 0
     value = abs(value)
     whole = int(value)
-    frac = Fraction(value - whole).limit_denominator(denom)
+    ticks = round((value - whole) * denom)
+    if ticks >= denom:                     # 41.999 rounds up to a whole inch
+        whole += 1
+        ticks = 0
+    frac = Fraction(ticks, denom)          # reduces to /2 /4 /8 /16 /32 /64
     sign = "-" if neg else ""
     if frac == 0:
         return f'{sign}{whole}"'

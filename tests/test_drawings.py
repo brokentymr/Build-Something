@@ -26,6 +26,23 @@ def test_fraction_formatting():
     print("  [ok] decimal->fraction formatting")
 
 
+def test_fractions_exist_on_a_tape_measure():
+    """The cut list once quoted 31-1/13" and 29-20/21" — the closest rational under
+    the limit, and unfindable on a rule. Every denominator must be a power of two."""
+    import re
+    legal = {1, 2, 4, 8, 16, 32, 64}
+    for i in range(4000):
+        v = i * 0.0173 + 0.004                 # sweep awkward, non-dyadic values
+        for denom in (32, 64):
+            s = fmt_inches(v, denom)
+            m = re.search(r"(\d+)/(\d+)", s)
+            if m:
+                d = int(m.group(2))
+                assert d in legal and d <= denom, f"{v} -> {s}"
+                assert abs(float(m.group(1)) / d) < 1.0, f"{v} -> {s}"
+    print("  [ok] every printed fraction has a power-of-two denominator")
+
+
 def test_no_default_label():
     """Lesson 7: dimension helpers must reject a missing label."""
     c = Canvas(200, 200)
