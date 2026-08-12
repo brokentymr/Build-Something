@@ -61,6 +61,27 @@ async function startWith(node){
   openProject(p.id);
 }
 function handleIntake(pid, res){
+  if(res.outcome==='offer_template'){
+    // a template is offered, never assumed — "a shoe bench with a lower shelf"
+    // once keyword-matched the floating shelf and would have been built as one
+    const out = $('#intake-out');
+    out.innerHTML = `<div class="card"><div class="q"><p class="prompt">${esc(res.message)}</p>
+      <div class="opts">
+        <button class="opt" id="use-t">Use the ${esc(res.node_display)} template
+          <span class="muted">— verified, fewer questions</span></button>
+        <button class="opt" id="design-it">Design mine from my description
+          <span class="muted">— tailored to exactly what I wrote</span></button>
+      </div></div></div>`;
+    $('#use-t').onclick = async () => {
+      await api('/api/projects/'+pid+'/pick','POST',{node:res.node});
+      openProject(pid);
+    };
+    $('#design-it').onclick = () => {
+      if(res.extracted && res.extracted.length) go(()=>confirmScreen(pid,res));
+      else openProject(pid);
+    };
+    return;
+  }
   if(res.outcome==='resolved'){
     if(res.extracted && res.extracted.length) go(()=>confirmScreen(pid,res));
     else openProject(pid);
@@ -79,9 +100,7 @@ function handleIntake(pid, res){
       }
     });
   } else {
-    out.innerHTML = `<div class="notice">${esc(res.message||'We could not place that yet.')}</div>
-      <div class="chips">${(res.known||[]).map(n=>`<button class="chip" data-node="${n}">${esc(n.replace('_',' '))}</button>`).join('')}</div>`;
-    out.querySelectorAll('.chip').forEach(c=> c.onclick=()=>startWith(c.dataset.node));
+    out.innerHTML = `<div class="notice">${esc(res.message||'We could not place that yet.')}</div>`;
   }
 }
 
@@ -109,7 +128,7 @@ async function library(){
       <div class="item" data-id="${p.id}">
         <div class="thumb">${p.status==='released'?'📄':'🪚'}</div>
         <div class="meta"><div class="t">${esc(p.title)}</div>
-          <div class="s">${esc(p.node?p.node.replace('_',' '):'choosing type')} · ${p.photo_count} photo(s)</div></div>
+          <div class="s">${esc(p.node==='__designed__'?'designed for you':(p.node?p.node.replace('_',' '):'choosing type'))} · ${p.photo_count} photo(s)</div></div>
         <div class="badge ${p.status==='released'?'released':''}">${esc(p.status)}</div>
       </div>`).join('') : '<p class="muted">No projects yet. Start something new.</p>'}</div>`;
   screen.querySelectorAll('.item').forEach(it=> it.onclick=()=>openProject(it.dataset.id));
@@ -149,7 +168,12 @@ function photosScreen(pid, st){
       reader.readAsDataURL(file);
   };};
   bind();
-  const proceed = async () => { await api('/api/projects/'+pid+'/photos-done','POST',{}); const s2=await api('/api/projects/'+pid); stack.pop(); configureScreen(pid,s2); stack.push(()=>configureScreen(pid,s2)); };
+  const proceed = async () => {
+    await api('/api/projects/'+pid+'/photos-done','POST',{});
+    let s2 = await api('/api/projects/'+pid);
+    if(s2.planning){ await planning(pid); s2 = await api('/api/projects/'+pid); }
+    stack.pop(); stack.push(()=>configureScreen(pid,s2)); render();
+  };
   $('#cont').onclick = proceed; $('#skip').onclick = proceed;
 }
 
@@ -209,20 +233,51 @@ function configureScreen(pid, st){
   const g=$('#gen'); if(g) g.onclick=()=>generate(pid);
 }
 
+// ---------------------------------------------------------------- planning
+// A build with no template has no question graph, so the agent writes one for
+// this object. It takes a few seconds and it is worth saying why.
+async function planning(pid){
+  screen.innerHTML = `<h1 class="hero" style="font-size:23px">Working out what to ask you</h1>
+    <p class="lede">Reading your description and photos, so we only ask what actually
+      changes the design.</p><div class="spinner"></div>`;
+  const res = await api('/api/projects/'+pid+'/plan','POST',{});
+  if(res.planned===false){
+    screen.innerHTML = `<div class="notice">We could not scope that one: ${esc(res.error||'unknown')}</div>
+      <button class="btn alt" id="home">Back to start</button>`;
+    $('#home').onclick=()=>{ stack=[landing]; render(); };
+    throw new Error(res.error||'planning failed');
+  }
+}
+
 // ---------------------------------------------------------------- generate
+const PHASES = [
+  ['planning',   'Scoping the build'],
+  ['designing',  'Designing it'],
+  ['reviewing',  'Reviewing the design'],
+  ['repairing',  'Fixing what does not hold up'],
+  ['writing',    'Writing the build instructions'],
+  ['drawing',    'Drawing plans, sections and joints'],
+  ['paginating', 'Laying out the document'],
+  ['gates',      'Checking every number and drawing'],
+];
+
 async function generate(pid){
-  const stepsList=['Auditing completeness (2 judges)','Solving geometry (pure)','Deriving parts & joinery','Nesting sheets','Drawing plans & sections','Paginating document','Running release gates (measure 3)'];
-  let i=0;
-  const draw=()=>{ screen.innerHTML=`<h1 class="hero" style="font-size:23px">Measure thrice, cut once</h1>
-    <p class="lede">Auditing before we commit the spec.</p>
-    <div class="spinner"></div>
-    <ul class="steps">${stepsList.map((s,k)=>`<li class="${k<i?'done':k===i?'active':''}">${esc(s)}</li>`).join('')}</ul>`; };
-  draw();
-  const tick=setInterval(()=>{ if(i<stepsList.length-1){i++;draw();} },550);
+  const draw = (phase, detail, failed) => {
+    let at = PHASES.findIndex(p=>p[0]===phase);
+    if(phase==='done') at = PHASES.length;
+    screen.innerHTML = `<h1 class="hero" style="font-size:23px">Measure thrice, cut once</h1>
+      <p class="lede">${esc(detail || 'Auditing before we commit the spec.')}</p>
+      ${failed?'':'<div class="spinner"></div>'}
+      <ul class="steps">${PHASES.map(([k,label],i)=>
+        `<li class="${i<at?'done':i===at?'active':''}">${esc(label)}</li>`).join('')}</ul>
+      <p class="muted" style="margin-top:16px">A design this app has not seen before takes
+        a few minutes — it draws, checks itself and fixes what it finds. You can leave
+        and come back; it keeps going.</p>`;
+  };
+  draw('planning','');
+
   const res = await api('/api/projects/'+pid+'/generate','POST',{});
-  clearInterval(tick);
   if(res.released===false){
-    // completeness audit loop-back — return to questioning with specifics
     const st = await api('/api/projects/'+pid);
     stack[stack.length-1]=()=>{ configureScreen(pid, st);
       const b=document.createElement('div'); b.className='notice';
@@ -230,7 +285,29 @@ async function generate(pid){
       screen.prepend(b); };
     return render();
   }
-  i=stepsList.length;
+
+  // follow the job — every line shown is a phase the worker actually reached
+  for(;;){
+    await new Promise(r=>setTimeout(r, 1500));
+    let job;
+    try { job = (await api('/api/projects/'+pid+'/job')).job; }
+    catch(e){ continue; }
+    if(!job || !job.status) continue;
+    if(job.status==='failed'){
+      draw(job.phase, '', true);
+      const note=document.createElement('div'); note.className='notice';
+      note.textContent='This one did not come together: '+(job.error||'unknown');
+      screen.prepend(note);
+      const again=document.createElement('button'); again.className='btn alt';
+      again.textContent='Back to questions';
+      again.onclick=async()=>{ const st=await api('/api/projects/'+pid);
+        stack[stack.length-1]=()=>configureScreen(pid,st); render(); };
+      screen.appendChild(again);
+      return;
+    }
+    if(job.status==='done') break;
+    draw(job.phase, job.detail);
+  }
   const st = await api('/api/projects/'+pid);
   stack[stack.length-1]=()=>resultScreen(pid, st, res); render();
 }
