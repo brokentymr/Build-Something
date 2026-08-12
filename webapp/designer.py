@@ -231,6 +231,14 @@ Keep it genuinely buildable."""
         parts = [{"id": p.id, "name": p.name, "cut": [_fmt(p.cut_wh()[0]), _fmt(p.cut_wh()[1])],
                   "qty": p.qty, "material": p.material_id, "joint": p.joint} for p in geo.parts]
         mats = sorted({p.material_id for p in geo.parts})
+        # Without these the model has to guess the numbers it writes about, and it
+        # guesses plausibly: a packet once specified a 3/8in rabbet for a design
+        # whose rabbet depth was 1/4in. Give it the design's own values to quote.
+        params = {k[6:]: _fmt(s.value) for k, s in sorted(geo.scalars.items())
+                  if k.startswith("param.")}
+        joinery = {pid: {"type": j.get("type"), "depth": _fmt(j.get("depth", 0.0))}
+                   for pid, j in (geo.structure.get("joinery") or {}).items()}
+        thick = {p.id: _fmt(p.thickness) for p in geo.parts}
         system = ("You are a master maker writing the build instructions for a printed packet. "
                   "Be specific, ordered and safe. Reference the real parts by id and name. Do "
                   "not invent dimensions beyond the parts given; you may cite spacings, grits, "
@@ -238,7 +246,13 @@ Keep it genuinely buildable."""
         user = (
             f"PROJECT: {ir.node_kind} — {ir.summary}\n"
             f"MATERIALS: {mats}\nFINISH: {ir.finish_id}\n"
-            f"PARTS: {json.dumps(parts)}\n\n"
+            f"PARTS: {json.dumps(parts)}\n"
+            f"STOCK THICKNESS BY PART: {json.dumps(thick)}\n"
+            f"DESIGN PARAMETERS: {json.dumps(params)}\n"
+            f"JOINERY CUTS: {json.dumps(joinery)}\n"
+            "When you name a joinery depth, a panel thickness, a setback or any other design "
+            "parameter, quote the value given above EXACTLY. Do not restate it in different "
+            "units or round it differently, and never substitute a number that seems typical.\n\n"
             "Write the packet content as JSON:\n"
             '{"title": short display title, "subtitle": one-sentence description,\n'
             ' "spec_meta": {"skill":"Beginner|Intermediate|Advanced","shop_time":"e.g. 6-8 hr",'
