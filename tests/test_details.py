@@ -186,3 +186,28 @@ def test_all_drawings_in_bounds():
         assert not c.geometry_overflow(), f"{name} geometry overflow"
         assert c.stage in ("as_cut", "as_assembled", "as_finished"), name
     print(f"  [ok] all {len(every)} hero + detail drawings in bounds, stage-tagged")
+
+
+def test_designer_directed_section():
+    """The designer picks where to slice and why; the engine draws exactly that."""
+    spec = {**_CASE, "sections": [
+        {"tag": "C-C", "axis": "z", "at_expr": "12.5",
+         "why": "through the shelf line, to show the housings"}]}
+    geo = compile_design(DesignIR.from_dict(spec))
+    assert geo.structure["sections"][0]["at"] == 12.5
+    d = detail_drawings(geo)
+    secs = [k for k in d if k.startswith("section_")]
+    assert secs, "a directed section must be drawn"
+    svg = d[secs[0]].render()
+    assert "C-C" in svg, "the designer's section tag must appear"
+    assert "through the shelf line" in svg, "the reason must be shown to the builder"
+    assert not d[secs[0]].overflowing_labels() and not d[secs[0]].geometry_overflow()
+    print("  [ok] designer-directed section drawn at its chosen plane, with its reason")
+
+
+def test_auto_section_fallback_when_undirected():
+    geo = compile_design(DesignIR.from_dict(_CASE))   # no sections authored
+    assert geo.structure.get("sections") == []
+    d = detail_drawings(geo)
+    assert any(k.startswith("section_") for k in d), "engine must still pick a cut"
+    print("  [ok] engine falls back to choosing the cut when none is directed")

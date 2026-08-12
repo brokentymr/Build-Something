@@ -328,8 +328,14 @@ class Canvas:
             )
         title = ""
         if self.title:
+            # The stage badge occupies the top-right; clip the in-drawing title so
+            # it cannot run underneath it. The figure caption carries the full text,
+            # so nothing is lost.
+            avail = self.w - (165 if self.stage else 20)
+            cap = max(8, int(avail / (12 * 0.58)))
+            shown = self.title if len(self.title) <= cap else self.title[:cap - 1] + "…"
             title = (f'<text x="10" y="18" font-size="12" font-weight="bold" '
-                     f'font-family="Helvetica,Arial" fill="#111">{_esc(self.title)}</text>')
+                     f'font-family="Helvetica,Arial" fill="#111">{_esc(shown)}</text>')
         body = "\n".join(self._els)
         return (
             f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {self.w} {self.h}" '

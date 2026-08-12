@@ -108,6 +108,7 @@ class DesignAgent:
             "box_x":expr,"box_y":expr,"box_z":expr,"box_w":expr,"box_d":expr,"box_h":expr,
             "step_x":expr,"step_y":expr,"step_z":expr,
             "joint_type":"butt|dado|groove|rabbet|pocket|miter","joint_depth_expr":expr}],
+ "sections": [{"tag":"A-A","axis":"x|y|z","at_expr":expr,"why":str}],
  "invariants": [{"kind":"span","params":{"name":str,"unsupported_span":expr,"flex_threshold":number}},
                 {"kind":"backing","params":{"name":str,"surface_width":expr,"backing_width":expr}}],
  "derived": [{"label":str,"value":str,"basis":str,"is_overridable":bool}],
@@ -118,6 +119,12 @@ EXPRESSIONS: arithmetic over param ids and material symbols only. For a material
 role R you may use `R_t` (actual thickness), `R_sw`/`R_sh` (stock size). Allowed:
 + - * / , parentheses, min/max/ceil/floor/round/abs. NEVER write a bare final
 dimension as a literal unless it is a genuine constant (e.g. a 1/4 setback).
+SECTIONS: name 1-2 sections that show what a builder most needs to see, each with
+the axis its cutting plane is normal to, where along that axis to cut, and WHY
+(e.g. "through the drawer bank, to show the runner housings"). Choose the planes
+that reveal the joinery and internal structure — not an empty gap and not a plane
+that grazes an outside face. The engine draws them and computes every dimension;
+you are only choosing where to look. Omit sections and the engine picks for you.
 PLACEMENT (required): give every part a 3D box in assembly space, inches, as
 expressions. x=left→right, y=front→back (depth), z=floor→up. box_w/box_d/box_h are
 extents along x/y/z; TWO equal the part's cut size and ONE equals the material

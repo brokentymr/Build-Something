@@ -98,12 +98,17 @@ def best_cut(boxes, axis="x"):
     return best
 
 
-def cross_section(geo: Geometry, axis: str = "x") -> Canvas | None:
-    """Section through the assembly, poché'd by material, with leader labels."""
+def cross_section(geo: Geometry, axis: str = "x", cut: float | None = None,
+                  tag: str | None = None, why: str = "") -> Canvas | None:
+    """Section through the assembly, poché'd by material, with leader labels.
+
+    ``cut`` lets the DESIGNER place the plane (and say why in ``why``); when it is
+    None the engine falls back to picking the most informative cut itself."""
     boxes = geo.structure.get("boxes") or []
     if not boxes:
         return None
-    cut = best_cut(boxes, axis)
+    if cut is None:
+        cut = best_cut(boxes, axis)
     lo_key, ext_key = AXES[axis]
     # the two axes that remain form the section plane; z is always drawn upward
     plane = [a for a in ("x", "y", "z") if a != axis]
@@ -121,11 +126,12 @@ def cross_section(geo: Geometry, axis: str = "x") -> Canvas | None:
         return None
 
     hgt = 340.0
-    tag = "A-A" if axis == "x" else "B-B"
+    tag = tag or ("A-A" if axis == "x" else "B-B")
     plane_name = {"x": "looking along the length",
                   "y": "looking along the depth",
                   "z": "looking down"}[axis]
-    c = Canvas(W, hgt, stage="as_cut", title=f"Section {tag} — {plane_name}")
+    c = Canvas(W, hgt, stage="as_cut",
+               title=f"Section {tag} — {why or plane_name}")
     avail_w = LABEL_X - MARGIN - 24
     s = min(avail_w / rw, (hgt - 2 * MARGIN - 10) / rh)
     ox = MARGIN
@@ -523,12 +529,21 @@ def board_layout(nest, sheet_index: int) -> Canvas:
 def detail_drawings(geo: Geometry, max_joints: int = 3) -> dict:
     """Section + the most significant joint details + the predrill chart."""
     out: dict[str, Canvas] = {}
-    sec = cross_section(geo, "x")
-    if sec:
-        out["section_aa"] = sec
-    sec2 = cross_section(geo, "y")
-    if sec2:
-        out["section_bb"] = sec2
+    directed = geo.structure.get("sections") or []
+    if directed:
+        # the designer said where to look and why
+        for i, spec in enumerate(directed[:3], 1):
+            sec = cross_section(geo, spec.get("axis", "x"), cut=spec.get("at"),
+                                tag=spec.get("tag") or f"S{i}", why=spec.get("why", ""))
+            if sec:
+                out[f"section_{i}"] = sec
+    else:
+        sec = cross_section(geo, "x")
+        if sec:
+            out["section_aa"] = sec
+        sec2 = cross_section(geo, "y")
+        if sec2:
+            out["section_bb"] = sec2
     for i, contact in enumerate(find_contacts(geo)[:max_joints], 1):
         d = joint_detail(geo, contact, f"D{i}")
         if d:

@@ -120,7 +120,7 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
 
     # ---------- SECTIONS + JOINT DETAILS + PREDRILLS ----------
     details = gdetail.detail_drawings(geo)
-    sections = [k for k in ("section_aa", "section_bb") if k in details]
+    sections = [k for k in details if k.startswith("section_")]
     if sections:
         B("h_sect", "header", _h("Assembly sections", "how it stacks up"))
         for k in sections:

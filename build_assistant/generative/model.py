@@ -89,6 +89,19 @@ class PartSpec:
 
 
 @dataclass
+class SectionSpec:
+    """A section the DESIGNER asks for — where to slice and why it matters.
+
+    The agent chooses the viewpoint; the engine still computes every dimension it
+    contains. Without any of these the engine falls back to picking a cut
+    automatically."""
+    tag: str                      # "A-A", "B-B" ...
+    axis: str                     # x | y | z — the axis the cutting plane is normal to
+    at_expr: str                  # position of the plane along that axis
+    why: str = ""                 # what this section is meant to show
+
+
+@dataclass
 class InvariantSpec:
     kind: str                     # span | backing | positive | fits_stock | height_stack
     params: dict = field(default_factory=dict)
@@ -112,6 +125,7 @@ class DesignIR:
     finish_id: str                # finish system id or "none"
     elements: list[ElementSpec]
     parts: list[PartSpec]
+    sections: list[SectionSpec] = field(default_factory=list)
     invariants: list[InvariantSpec] = field(default_factory=list)
     derived: list[DerivedNote] = field(default_factory=list)
     operations: list[str] = field(default_factory=list)
@@ -149,6 +163,9 @@ class DesignIR:
                 joint_type=str(p.get("joint_type", "butt") or "butt"),
                 joint_depth_expr=str(p.get("joint_depth_expr", "")),
             ) for p in d["parts"]],
+            sections=[SectionSpec(tag=str(x.get("tag", f"S{n+1}")), axis=str(x.get("axis", "x")),
+                                 at_expr=str(x.get("at_expr", x.get("at", ""))), why=str(x.get("why", "")))
+                      for n, x in enumerate(d.get("sections", []))],
             invariants=[InvariantSpec(kind=i["kind"], params=i.get("params", {}))
                         for i in d.get("invariants", [])],
             derived=[DerivedNote(**n) for n in d.get("derived", [])],
@@ -165,6 +182,7 @@ class DesignIR:
             "finish_id": self.finish_id,
             "elements": [{**vars(e), "faces": [vars(f) for f in e.faces]} for e in self.elements],
             "parts": [vars(p) for p in self.parts],
+            "sections": [vars(x) for x in self.sections],
             "invariants": [vars(i) for i in self.invariants],
             "derived": [vars(n) for n in self.derived],
             "operations": self.operations, "fasteners": self.fasteners, "warnings": self.warnings,

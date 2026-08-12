@@ -133,6 +133,16 @@ def compile_design(ir: DesignIR, check: bool = True) -> Geometry:
     structure["warnings"] = ir.warnings
     structure["boxes"] = boxes
     structure["joinery"] = joinery
+    # Designer-directed sections: the agent picks where to slice and says why;
+    # the engine evaluates the position and draws it.
+    secs = []
+    for x in ir.sections:
+        try:
+            secs.append({"tag": x.tag, "axis": x.axis, "at": round(ev(x.at_expr), 4),
+                         "why": x.why})
+        except Exception:  # noqa: BLE001
+            continue
+    structure["sections"] = secs
     # Register the assembled bounding-box dimensions as solver scalars so the
     # cover's "overall" dims trace (Gate 1). These are engine-computed from the
     # part placements, not authored.
