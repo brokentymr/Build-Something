@@ -67,6 +67,19 @@ def _ortho(geo: Geometry, ax: str, ay: str, title: str, hgt=None) -> Canvas:
                  "x": lambda b: b["x"]}[view]  # side elevation: viewer at the right
     shade = {pid: _SHADES[i % len(_SHADES)]
              for i, pid in enumerate(dict.fromkeys(x["id"] for x in boxes))}
+
+    # A plan is a cut, not a lid. Drawn as a literal top view the top panel covers
+    # the whole carcass and the drawing says nothing. Horizontal panels that span
+    # the piece — the top, the shelves — become dashed outlines, the way a plan
+    # implies its surfaces, leaving the walls, back and plinth reading solid.
+    outline_only = set()
+    if view == "z":
+        footprint = real_w * real_h
+        for b in boxes:
+            flat = b["h"] <= 0.5 * min(b["w"], b["d"])
+            if flat and b["w"] * b["d"] >= 0.4 * footprint:
+                outline_only.add(id(b))
+
     for i, b in enumerate(sorted(boxes, key=depth_key)):
         bx = (b[aw] - span[ax][0]) * s
         by = (b[ahp] - span[ay][0]) * s
@@ -74,7 +87,10 @@ def _ortho(geo: Geometry, ax: str, ay: str, title: str, hgt=None) -> Canvas:
         rh = b[hkey] * s
         px = ox + bx
         py = (oy - by - rh) if invert else (MARGIN + 16 + by)
-        c.rect(px, py, rw, rh, fill=shade.get(b["id"], _SHADES[0]), sw=0.9)
+        if id(b) in outline_only:
+            c.rect(px, py, rw, rh, fill="none", sw=0.9, dash="5,3")
+        else:
+            c.rect(px, py, rw, rh, fill=shade.get(b["id"], _SHADES[0]), sw=0.9)
     # overall dimensions — horizontal below, vertical in the left gutter (rotated)
     c.dim_horizontal(ox, ox + real_w * s, oy + 22, fmt_inches(real_w))
     y0 = (oy - real_h * s) if invert else (MARGIN + 16)

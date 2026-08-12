@@ -254,3 +254,17 @@ def test_elevation_draws_far_parts_first():
         f"the back panel must be drawn first, not {body[0]}"
     assert body[-1].lower() != back_shade.lower(), "the back must not cover the shelves"
     print("  [ok] elevations draw far parts first, so the structure shows")
+
+
+def test_plan_reads_as_a_cut_not_a_lid():
+    """A literal top view is the top panel and nothing else. Horizontal panels that
+    span the piece draw as dashed outlines so the walls and back read."""
+    import re
+    from build_assistant.generative.draw import plan
+    svg = plan(_geo()).render()
+    dashed = re.findall(r'<rect[^>]*stroke-dasharray', svg)
+    solid = [r for r in re.findall(r'<rect[^>]*/>', svg)
+             if "dasharray" not in r and 'fill="#fff"' not in r and 'fill="#111"' not in r]
+    assert dashed, "the top and shelves must draw as outlines in a plan"
+    assert solid, "the side panels and back must still read solid"
+    print(f"  [ok] plan draws {len(dashed)} surfaces as outlines, walls stay solid")
