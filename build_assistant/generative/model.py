@@ -64,6 +64,23 @@ class PartSpec:
     finished_faces_len: int = 0   # # finished faces along the length axis (0-2)
     finished_faces_wid: int = 0
     joint: str = ""
+    # placement of the FIRST instance in assembly space (inches), as expressions.
+    # x=left→right, y=front→back(depth), z=floor→up. w/d/h are extents along x/y/z.
+    # Two extents equal the cut size, one equals the material thickness. Optional:
+    # when present, the engine draws real plan/elevation/exploded views.
+    box_x: str = ""
+    box_y: str = ""
+    box_z: str = ""
+    box_w: str = ""
+    box_d: str = ""
+    box_h: str = ""
+    # for multi-instance parts (qty>1): step between instances, e.g. shelves up z.
+    step_x: str = "0"
+    step_y: str = "0"
+    step_z: str = "0"
+
+    def has_box(self) -> bool:
+        return bool(self.box_w and self.box_d and self.box_h)
 
 
 @dataclass
@@ -119,6 +136,11 @@ class DesignIR:
                 finished_faces_len=int(p.get("finished_faces_len", 0)),
                 finished_faces_wid=int(p.get("finished_faces_wid", 0)),
                 joint=p.get("joint", ""),
+                box_x=str(p.get("box_x", "")), box_y=str(p.get("box_y", "")),
+                box_z=str(p.get("box_z", "")), box_w=str(p.get("box_w", "")),
+                box_d=str(p.get("box_d", "")), box_h=str(p.get("box_h", "")),
+                step_x=str(p.get("step_x", "0")), step_y=str(p.get("step_y", "0")),
+                step_z=str(p.get("step_z", "0")),
             ) for p in d["parts"]],
             invariants=[InvariantSpec(kind=i["kind"], params=i.get("params", {}))
                         for i in d.get("invariants", [])],

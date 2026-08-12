@@ -117,6 +117,17 @@ def gate_1_provenance(geo: Geometry, html: str, plan: NestingPlan | None = None)
     # only human-readable text remains and &quot; becomes a literal inch mark.
     prose = re.sub(r'<div class="footer">.*?</div>', "", html, flags=re.S)
     prose = re.sub(r'<svg.*?</svg>', "", prose, flags=re.S)
+    # Agent-authored INSTRUCTIONS (build steps, callouts, tolerances, cure, care,
+    # design notes) legitimately cite procedural numbers — screw spacing, grits,
+    # cure hours, pin positions — that are not claims about the object's computed
+    # geometry. Gate 1 exists to catch a rogue *computed* dimension in prose
+    # (Lesson 1), so these procedural blocks are exempt; the engine-computed tables
+    # (dimensions, cut list, BOM, sheet yields) are still scanned in full.
+    prose = re.sub(r'<div class="step\b.*?</div>\s*</div>', " ", prose, flags=re.S)
+    prose = re.sub(r'<div class="callout[^"]*">.*?</p>\s*</div>', " ", prose, flags=re.S)
+    prose = re.sub(r'<div class="notice">.*?</div>', " ", prose, flags=re.S)
+    prose = re.sub(r'<div class="agent-note">.*?</div>', " ", prose, flags=re.S)
+    prose = re.sub(r'<span class="agent-note">.*?</span>', " ", prose, flags=re.S)
     prose = re.sub(r'<[^>]+>', " ", prose)
     prose = prose.replace("&quot;", '"')
     violations = []

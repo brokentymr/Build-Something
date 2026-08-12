@@ -174,13 +174,13 @@ def _cover_callouts(geo: Geometry) -> str:
          f"Cut the plinth {cut} tall; it measures {fin} on the finished piece because the slab edge "
          f"occludes the top. This is correct, not an error."),
     ]
-    cells = "".join(f'<div class="callout crit"><div class="ct">{_e(t)}</div>'
+    cells = "".join(f'<div class="callout crit"><span class="ct">{_e(t)}</span>'
                     f'<p>{p}</p></div>' for t, p in items)
     return f'<div class="callouts">{cells}</div>'
 
 
 def _callout(title: str, body: str, kind: str = "info") -> str:
-    return f'<div class="callout box {kind}"><div class="ct">{_e(title)}</div><p>{body}</p></div>'
+    return f'<div class="callout box {kind}"><span class="ct">{_e(title)}</span><p>{body}</p></div>'
 
 
 def _spec_table(geo: Geometry) -> str:

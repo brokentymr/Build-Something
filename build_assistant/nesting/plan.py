@@ -44,6 +44,18 @@ def plan_nesting(geo: Geometry) -> NestingPlan:
         mat = get_material(mid)
         stock = mat.stock_sizes[0]
         allow_rotate = mat.grain_direction == "none"
+        if not allow_rotate:
+            # Grained: each piece gets ONE fixed orientation (rotation stays off so
+            # grain is never broken). Keep the piece as-given when it fits the sheet
+            # that way; only swap length onto the long axis when it otherwise would
+            # not fit (a part longer than the short sheet dimension).
+            oriented = []
+            for pid, L, Wd in pieces:
+                if L <= stock.w + 1e-6 and Wd <= stock.h + 1e-6:
+                    oriented.append((pid, L, Wd))
+                else:
+                    oriented.append((pid, Wd, L))       # length onto the long axis
+            pieces = oriented
         nests[mid] = nest(mid, stock.w, stock.h, pieces, allow_rotate=allow_rotate)
 
     # --- finish skin panels (cement board) ---

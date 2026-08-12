@@ -210,20 +210,29 @@ def per_stage_plinth(geo: Geometry) -> tuple[Canvas, Canvas]:
 
 
 def nesting_diagram(nest: NestResult, sheet_index: int) -> Canvas:
-    """Sheet layout, labelled by ID only; font scaled to the smaller rectangle."""
+    """Sheet layout, labelled by ID only; font scaled to the smaller rectangle.
+
+    Long, skinny stock (lumber/boards) is drawn in landscape — its length runs
+    across the page — so it stays a readable strip instead of a 1px sliver."""
     sheet = nest.sheets[sheet_index - 1]
-    c = Canvas(W, W * sheet.sheet_h / sheet.sheet_w + 40,
-               title=f"{nest.material_id} — sheet {sheet_index} "
-                     f"({sheet.utilisation()*100:.1f}% used)", stage="as_cut")
-    s = (W - 20) / sheet.sheet_w
+    landscape = sheet.sheet_h > sheet.sheet_w * 2.2
+    sw = sheet.sheet_h if landscape else sheet.sheet_w
+    sh = sheet.sheet_w if landscape else sheet.sheet_h
+    title = (f"{nest.material_id} — sheet {sheet_index} "
+             f"({sheet.utilisation()*100:.1f}% used)"
+             + (" · not to scale, board shown lengthwise" if landscape else ""))
+    c = Canvas(W, min(760.0, W * sh / sw + 40), title=title, stage="as_cut")
+    s = (W - 20) / sw
     oy = 30.0
-    c.rect(10, oy, sheet.sheet_w * s, sheet.sheet_h * s, sw=1.3)
+    c.rect(10, oy, sw * s, sh * s, sw=1.3)
     for p in sheet.placements:
-        c.rect(10 + p.x * s, oy + p.y * s, p.w * s, p.h * s, fill="#f0ece3", sw=0.6)
-        rect_min = min(p.w * s, p.h * s)
-        fs = max(6.0, min(12.0, rect_min * 0.5))
+        # in landscape, swap axes so the board's length is horizontal
+        px, py, pw, ph = (p.y, p.x, p.h, p.w) if landscape else (p.x, p.y, p.w, p.h)
+        c.rect(10 + px * s, oy + py * s, pw * s, ph * s, fill="#f0ece3", sw=0.6)
+        rect_min = min(pw * s, ph * s)
+        fs = max(6.0, min(12.0, rect_min * 0.6))
         pid = p.part_id.rstrip("0123456789")  # label by ID only (Lesson 9)
-        c.text(10 + (p.x + p.w / 2) * s, oy + (p.y + p.h / 2) * s + fs / 3, pid, size=fs)
+        c.text(10 + (px + pw / 2) * s, oy + (py + ph / 2) * s + fs / 3, pid, size=fs)
     return c
 
 

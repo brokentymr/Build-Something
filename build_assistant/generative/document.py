@@ -1,10 +1,9 @@
-"""Generic build document — works from ANY solved Geometry.
+"""Generic build packet — reference-grade, for ANY object.
 
-The coffee-table document is bespoke; this one assumes nothing about the object.
-It renders: cover + spec (parameters), a proportional elevation/plan from the
-element bounding boxes, bill of materials, cut lists, sheet nesting diagrams with
-yield, a build sequence (supplied by the agent or a generic fallback), derived
-decisions with basis, and any warnings. Reuses the two-pass engine and the gates.
+Assembles the editorial packet from three sources: verified numbers (engine),
+hero drawings projected from 3D part placement (engine), and the instructional
+content authored by the design agent (title, callouts, tolerances, phased steps,
+cure, care). Reuses the shared document design system and the release gates.
 """
 
 from __future__ import annotations
@@ -13,135 +12,199 @@ from ..core.model import Geometry
 from ..nesting.plan import NestingPlan
 from ..drawing.primitives import Canvas, fmt_inches
 from ..drawing.drawings import nesting_diagram
-from ..document.content import Block, _table, _h, _e
+from ..document.content import Block, _table, _h, _e, _callout
 from ..parts.joinery import tool_schedule
-
-W = 520.0
-MARGIN = 56.0
+from . import draw as gdraw
 
 
-def _box_elevation(geo: Geometry, title: str) -> Canvas:
-    """A proportional front elevation from the union of element bounding boxes."""
-    c = Canvas(W, 320, title=title, stage="as_finished")
-    els = geo.elements
-    if not els:
-        return c
-    maxL = max(e.finished_length.as_finished for e in els)
-    maxH = max((e.z_base + e.finished_height.as_finished) for e in els) or 1
-    s = min((W - 2 * MARGIN) / maxL, (320 - 2 * MARGIN - 20) / maxH)
-    ox = MARGIN
-    oy = 320 - MARGIN
-    shades = ["#e9e4da", "#d8d0c4", "#efe9dd", "#e5ded1", "#f0ece3"]
-    for i, e in enumerate(els):
-        L = e.finished_length.as_finished
-        H = e.finished_height.as_finished
-        z = e.z_base
-        c.rect(ox + (maxL - L) * s / 2, oy - (z + H) * s, L * s, H * s,
-               fill=shades[i % len(shades)], sw=1.1)
-    c.dim_horizontal(ox, ox + maxL * s, oy + 20, fmt_inches(maxL))
-    c.dim_vertical(oy - maxH * s, oy, ox - 14, fmt_inches(maxH))
-    return c
+def _svg(c: Canvas) -> str:
+    return f'<div class="fig">{c.render()}<div class="figcap">{_e(c.title)} '\
+           f'<span class="stage">[{c.stage}]</span></div></div>'
 
 
 def generic_drawings(geo: Geometry, plan: NestingPlan) -> dict:
-    """The canvases used by the generic document — also handed to the visual gate."""
-    d = {"elevation": _box_elevation(geo, "Proportional elevation")}
+    d = dict(gdraw.hero_drawings(geo))
     for mid, nest in plan.nests.items():
         for i in range(1, nest.sheet_count() + 1):
             d[f"nest_{mid}_{i}"] = nesting_diagram(nest, i)
     return d
 
 
-def build_blocks_generic(geo: Geometry, plan: NestingPlan, sequence: list) -> list[Block]:
+def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None = None) -> list[Block]:
     from ..catalog.materials import get_material
+    packet = packet or {}
+    hero = gdraw.hero_drawings(geo)
     blocks: list[Block] = []
 
     def B(bid, kind, html):
         blocks.append(Block(bid, kind, html))
 
-    summary = geo.structure.get("summary", "")
-    kind = geo.structure.get("node_kind", geo.node)
+    kind = geo.structure.get("node_kind", geo.node).replace("_", " ")
+    title = packet.get("title") or geo.inputs.get("name", kind.title())
+    subtitle = packet.get("subtitle") or geo.structure.get("summary", "")
+    meta = packet.get("spec_meta", {})
 
-    # cover
-    cover = f"""<div class="cover"><div class="revtag">Revision A</div>
-      <h1 class="doctitle">{_e(geo.inputs.get('name', kind))}</h1>
-      <div class="subtitle">{_e(summary)}</div>
-      <div class="specsummary">
-        <div><span class="k">Type</span><span class="v">{_e(kind)}</span></div>
-        <div><span class="k">Parts</span><span class="v">{geo.part_type_count()} types / {geo.piece_count()} pieces</span></div>
-        <div><span class="k">Sheets</span><span class="v">{sum(n.sheet_count() for n in plan.nests.values())}</span></div>
-        <div><span class="k">Finish</span><span class="v">{_e(geo.finish_id)}</span></div>
-      </div>{_fig(_box_elevation(geo,'Proportional elevation'))}</div>"""
-    B("cover", "cover", cover)
+    # ---------- COVER ----------
+    B("cover", "cover", _cover(geo, plan, hero, kind, title, subtitle, meta, packet))
 
+    # ---------- design notes / warnings ----------
     warnings = geo.structure.get("warnings", [])
     if warnings:
-        B("warn", "prose", '<div class="notice"><b>Design notes:</b> ' +
-          "; ".join(_e(w) for w in warnings) + "</div>")
+        B("warn", "prose", '<div class="notice"><b>Design notes:</b> '
+          + "; ".join(_e(w) for w in warnings) + "</div>")
 
-    # spec (parameters)
-    B("h_spec", "header", _h("Dimensions"))
-    prm = [[_e(s.field_id.replace("param.", "")), fmt_inches(s.value) if s.unit == "in" else f"{s.value:g} {s.unit}"]
-           for k, s in sorted(geo.scalars.items()) if k.startswith("param.")]
-    B("spec", "table", _table(["Parameter", "Value"], prm) if prm else "<p>—</p>")
+    # ---------- DESIGN SPECIFICATION (governing dims + hero views) ----------
+    B("h_spec", "header", _h("Design specification", "finished dimensions"))
+    if packet.get("governing_note"):
+        B("govnote", "prose", f'<div class="agent-note"><p>{_e(packet["governing_note"])}</p></div>')
+    B("spec", "table", _param_table(geo))
+    for k in ("plan", "front_elevation", "side_elevation"):
+        if k in hero:
+            B(f"fig_{k}", "figure", _svg(hero[k]))
 
-    # BOM
+    # ---------- CRITICAL CONCEPT callouts ----------
+    callouts = packet.get("callouts") or []
+    if callouts:
+        B("h_crit", "header", _h("Before you cut", "read this first"))
+        kinds = {"crit": "warn", "warn": "warn", "info": "info"}
+        cells = "".join(_callout(c.get("title", ""), _e(c.get("body", "")),
+                                 kinds.get(c.get("kind", "info"), "info")) for c in callouts[:3])
+        B("crit", "prose", f'<div class="callouts" style="border:none;padding-top:0">{cells}</div>')
+
+    # ---------- BILL OF MATERIALS ----------
     B("h_bom", "header", _h("Bill of materials"))
-    counts: dict[str, int] = {}
-    for mid, n in plan.nests.items():
-        counts[mid] = n.sheet_count()
     bom = []
-    for mid, sheets in counts.items():
+    for mid, n in plan.nests.items():
         m = get_material(mid)
         st = m.stock_sizes[0]
-        bom.append([m.display_name, f"{sheets} @ {fmt_inches(st.w)}&times;{fmt_inches(st.h)}",
-                    _e(m.category)])
+        bom.append([m.display_name, f"{n.sheet_count()} @ {fmt_inches(st.w)}&times;{fmt_inches(st.h)}",
+                    _e(m.category.replace("_", " "))])
     B("bom", "table", _table(["Material", "Quantity", "Category"], bom))
 
-    # tool schedule (from operations)
+    # ---------- TOOL SCHEDULE ----------
     ops = geo.structure.get("operations", set())
     if ops:
         try:
-            ts = [[t.tool, t.setting, t.justified_by] for t in tool_schedule(ops)]
-            B("h_tool", "header", _h("Tools"))
-            B("tool", "table", _table(["Tool / bit", "Setting", "For"], ts))
+            ts = [[t.tool, t.setting, t.justified_by.replace("_", " ")] for t in tool_schedule(ops)]
+            B("h_tool", "header", _h("Tool and bit schedule"))
+            B("tool", "table", _table(["Tool / bit", "Setting", "For operation"], ts))
         except Exception:  # noqa: BLE001
             pass
 
-    # cut list
-    B("h_cut", "header", _h("Cut list (as-cut)"))
+    # ---------- CUT LIST ----------
+    B("h_cut", "header", _h("Cut list", "quoted as-cut"))
     cut = [[p.id, _e(p.name), f"{fmt_inches(p.cut_wh()[0])} &times; {fmt_inches(p.cut_wh()[1])}",
-            str(p.qty), _e(p.material_id.replace('_', ' ')), _e(p.joint)] for p in geo.parts]
+            str(p.qty), _e(p.material_id.replace('_', ' ')),
+            f'<span class="agent-note">{_e(p.joint)}</span>'] for p in geo.parts]
     B("cut", "table", _table(["ID", "Part", "As-cut", "Qty", "Material", "Joint"], cut))
 
-    # sheet layouts
-    B("h_sheet", "header", _h("Sheet layouts"))
+    # ---------- SHEET LAYOUTS ----------
+    B("h_sheet", "header", _h("Sheet layouts, yield and waste"))
     for mid, nest in plan.nests.items():
         for i in range(1, nest.sheet_count() + 1):
-            B(f"nest_{mid}_{i}", "figure", _fig(nesting_diagram(nest, i)))
+            B(f"nest_{mid}_{i}", "figure", _svg(nesting_diagram(nest, i)))
 
-    # build sequence
-    B("h_seq", "header", _h("Build sequence"))
-    for i, st in enumerate(sequence, 1):
-        chips = "".join(f'<span class="chip tool">{_e(x)}</span>' for x in st.get("tools", []))
-        chips += "".join(f'<span class="chip fast">{_e(x)}</span>' for x in st.get("fasteners", []))
-        B(f"step_{i}", "step", f"""<div class="step"><div class="stephead">
-          <span class="stepn">{i}</span><span class="stepphase">{_e(st.get('phase',''))}</span>
-          <span class="steptitle">{_e(st.get('title',''))}</span></div>
-          <div class="stepdetail">{_e(st.get('detail',''))}</div>
-          <div class="chips">{chips}</div>
-          <div class="steptol"><b>Check:</b> {_e(st.get('check',''))}</div>
-          <div class="stepsign">&#9744; Sign-off<span class="ts">time: ____</span></div></div>""")
+    # ---------- TOLERANCE BUDGET ----------
+    tol = packet.get("tolerances") or []
+    if tol:
+        B("h_tol", "header", _h("Tolerance budget"))
+        B("tol", "table", '<div class="agent-note">'+_table(["Check", "Tolerance"], [[_e(t.get("check", "")), _e(t.get("tolerance", ""))] for t in tol])+'</div>')
 
-    # derived decisions
-    if geo.derived_decisions:
-        B("h_der", "header", _h("Derived, not asked"))
-        der = [[_e(d.label), _e(d.value), _e(d.basis)] for d in geo.derived_decisions]
-        B("der", "table", _table(["Decision", "Value", "Basis"], der))
+    # ---------- BUILD SEQUENCE ----------
+    steps = packet.get("steps") or []
+    if steps:
+        B("h_seq", "header", _h("Build sequence", f"{len(steps)} steps"))
+        for i, st in enumerate(steps, 1):
+            B(f"step_{i}", "step", _step(i, st))
+
+    # ---------- CURE SCHEDULE ----------
+    cure = packet.get("cure") or []
+    if cure:
+        B("h_cure", "header", _h("Cure schedule", "mostly waiting"))
+        B("cure", "table", '<div class="agent-note">'+_table(["Stage", "Wait", "Note"], [[_e(c.get("stage", "")), _e(c.get("wait", "")), _e(c.get("note", ""))] for c in cure])+'</div>')
+
+    # ---------- CARE ----------
+    if packet.get("care"):
+        B("h_care", "header", _h("Care and maintenance"))
+        B("care", "prose", f'<div class="agent-note"><p>{_e(packet["care"])}</p></div>')
+
+    # ---------- DESIGN RECORD ----------
+    B("h_rec", "header", _h("Design record", "inputs that generated this packet"))
+    rec = [[_e(p.label), fmt_inches(p.value) if p.unit == "in" else f"{p.value:g} {p.unit}",
+            _e(p.source)] for p in _param_list(geo)]
+    B("rec", "table", _table(["Parameter", "Value", "Source"], rec))
 
     return blocks
 
 
-def _fig(canvas: Canvas) -> str:
-    return f'<div class="fig">{canvas.render()}<div class="figcap">{_e(canvas.title)} '\
-           f'<span class="stage">[{canvas.stage}]</span></div></div>'
+# --------------------------------------------------------------------------
+
+def _cover(geo, plan, hero, kind, title, subtitle, meta, packet) -> str:
+    dims = ""
+    if "boxes" in geo.structure and geo.structure["boxes"]:
+        bx = geo.structure["boxes"]
+        xs = [b["x"] for b in bx] + [b["x"] + b["w"] for b in bx]
+        ys = [b["y"] for b in bx] + [b["y"] + b["d"] for b in bx]
+        zs = [b["z"] for b in bx] + [b["z"] + b["h"] for b in bx]
+        dims = f"{fmt_inches(max(xs)-min(xs))} &times; {fmt_inches(max(ys)-min(ys))} &times; {fmt_inches(max(zs)-min(zs))}"
+    wt = geo.scalars.get("weight_estimate")
+    chips = [("Overall", dims or "&mdash;"),
+             ("Weight", f"~{wt.value:g} lb" if wt else "&mdash;"),
+             ("Skill", meta.get("skill", "Intermediate")),
+             ("Shop time", meta.get("shop_time", "&mdash;")),
+             ("Parts", f"{geo.part_type_count()} types / {geo.piece_count()} pcs"),
+             ("Sheets", str(sum(n.sheet_count() for n in plan.nests.values()))),
+             ("Finish", _e(geo.finish_id.replace("_", " "))),
+             ("Elapsed", meta.get("elapsed", "&mdash;"))]
+    chiprows = "".join(f'<div class="row"><span class="k">{k}</span>'
+                       f'<span class="v">{v}</span></div>' for k, v in chips)
+    calls = ""
+    if packet.get("callouts"):
+        cells = "".join(f'<div class="callout crit"><span class="ct">{_e(c.get("title",""))}</span>'
+                        f'<p>{_e(c.get("body",""))}</p></div>' for c in packet["callouts"][:3])
+        calls = f'<div class="callouts">{cells}</div>'
+    exploded = _svg(hero["exploded"]) if "exploded" in hero else ""
+    return f"""
+    <div class="cover">
+      <div class="revtag">Build packet / Rev A</div>
+      <div class="toprule"></div>
+      <div class="coverwrap">
+        <div class="lead">
+          <div class="eyebrow">{_e(kind)}</div>
+          <h1 class="doctitle">{_e(title)}</h1>
+          <div class="subtitle">{_e(subtitle)}</div>
+        </div>
+        <div class="specchips">{chiprows}</div>
+      </div>
+      {exploded}
+      {calls}
+    </div>"""
+
+
+def _param_table(geo: Geometry) -> str:
+    rows = [[_e(p.label), fmt_inches(p.value) if p.unit == "in" else f"{p.value:g} {p.unit}"]
+            for p in _param_list(geo)]
+    return _table(["Parameter", "Value"], rows)
+
+
+def _param_list(geo: Geometry):
+    from .model import Param
+    # reconstruct param labels from scalars (param.<id>) — value already in inches
+    out = []
+    for k, s in sorted(geo.scalars.items()):
+        if k.startswith("param."):
+            out.append(Param(id=k[6:], label=k[6:].replace("_", " ").title(),
+                             value=s.value, unit=s.unit, source="user"))
+    return out
+
+
+def _step(i: int, st: dict) -> str:
+    chips = "".join(f'<span class="chip tool">{_e(x)}</span>' for x in st.get("tools", []))
+    chips += "".join(f'<span class="chip fast">{_e(x)}</span>' for x in st.get("fasteners", []))
+    check = f'<div class="stepsign">&#9744; {_e(st.get("check",""))}<span class="ts">time: ____</span></div>' \
+        if st.get("check") else ""
+    return f"""<div class="step"><div class="stephead">
+      <span class="stepn">{i:02d}</span><span class="stepphase">{_e(st.get('phase',''))}</span>
+      <span class="steptitle">{_e(st.get('title',''))}</span></div>
+      <div class="stepdetail">{_e(st.get('detail',''))}</div>
+      <div class="chips">{chips}</div>{check}</div>"""

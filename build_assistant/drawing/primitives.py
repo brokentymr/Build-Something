@@ -95,7 +95,7 @@ class Canvas:
         p = " ".join(f"{x:.2f},{y:.2f}" for x, y in pts)
         self._els.append(f'<polygon points="{p}" fill="{fill}" stroke="{stroke}" stroke-width="{sw}"/>')
 
-    def text(self, x, y, s, size=FONT, anchor="middle", color="#111", weight="normal"):
+    def text(self, x, y, s, size=FONT, anchor="middle", color="#111", weight="normal", rot=0):
         if s is None:
             raise LabelError("text() requires an explicit string (Lesson 7)")
         w = len(s) * size * CHAR_W
@@ -105,11 +105,17 @@ class Canvas:
             bx = x - w
         else:
             bx = x
-        self._texts.append(TextBox(bx, y - size, w, size * 1.2, s))
+        if rot:
+            # rotated label occupies a narrow vertical strip; record its rotated bbox
+            self._texts.append(TextBox(x - size, min(y, y - w), size * 1.2, w, s))
+            transform = f' transform="rotate({rot} {x:.2f} {y:.2f})"'
+        else:
+            self._texts.append(TextBox(bx, y - size, w, size * 1.2, s))
+            transform = ""
         self._els.append(
             f'<text x="{x:.2f}" y="{y:.2f}" font-size="{size}" text-anchor="{anchor}" '
             f'font-family="Helvetica,Arial,sans-serif" fill="{color}" '
-            f'font-weight="{weight}">{_esc(s)}</text>'
+            f'font-weight="{weight}"{transform}>{_esc(s)}</text>'
         )
 
     # ---- drafting primitives ----

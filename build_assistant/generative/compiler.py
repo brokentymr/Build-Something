@@ -33,6 +33,7 @@ def compile_design(ir: DesignIR, check: bool = True) -> Geometry:
     # ---- parts ----
     parts: list[Part] = []
     scalars: dict[str, ScalarField] = {}
+    boxes: list[dict] = []
     for p in ir.parts:
         mid = role_mat.get(p.material_role)
         if mid is None:
@@ -49,10 +50,32 @@ def compile_design(ir: DesignIR, check: bool = True) -> Geometry:
                           p.grain, "as_cut", p.element, p.joint))
         scalars[f"part.{p.id}.length"] = ScalarField(f"part.{p.id}.length", L.as_cut)
         scalars[f"part.{p.id}.width"] = ScalarField(f"part.{p.id}.width", W.as_cut)
+        # 3D placement (for hero drawings): one box per instance
+        if p.has_box():
+            bx, by, bz = ev(p.box_x or "0"), ev(p.box_y or "0"), ev(p.box_z or "0")
+            bw, bd, bh = ev(p.box_w), ev(p.box_d), ev(p.box_h)
+            sx, sy, sz = ev(p.step_x or "0"), ev(p.step_y or "0"), ev(p.step_z or "0")
+            for k in range(qty):
+                boxes.append({"id": p.id, "name": p.name,
+                              "x": bx + k * sx, "y": by + k * sy, "z": bz + k * sz,
+                              "w": bw, "d": bd, "h": bh})
 
     # ---- params as scalars (provenance) ----
     for pr in ir.params:
         scalars[f"param.{pr.id}"] = ScalarField(f"param.{pr.id}", round(pr.value, 4), pr.unit)
+
+    # ---- weight estimate (material volume x density) ----
+    lb = 0.0
+    for part in parts:
+        m = get_material(part.material_id)
+        lb += part.area_as_cut() * part.thickness * part.qty / 1728.0 * m.density_lb_per_cuft
+    if s > 0 and fin.substrate_material_id:
+        from ..catalog.materials import get_material as gm
+        sub = gm(fin.substrate_material_id)
+        # rough: skin area ~ finished exposed area; approximate as total part face area
+        skin_area = sum(p.area_as_cut() * p.qty for p in parts)
+        lb += skin_area * sub.actual_thickness / 1728.0 * sub.density_lb_per_cuft * 0.5
+    scalars["weight_estimate"] = ScalarField("weight_estimate", round(lb, 1), "lb")
 
     # ---- elements (finished boxes, for drawings) ----
     elements: list[Element] = []
@@ -103,6 +126,17 @@ def compile_design(ir: DesignIR, check: bool = True) -> Geometry:
     structure["summary"] = ir.summary
     structure["node_kind"] = ir.node_kind
     structure["warnings"] = ir.warnings
+    structure["boxes"] = boxes
+    # Register the assembled bounding-box dimensions as solver scalars so the
+    # cover's "overall" dims trace (Gate 1). These are engine-computed from the
+    # part placements, not authored.
+    if boxes:
+        xs = [b["x"] for b in boxes] + [b["x"] + b["w"] for b in boxes]
+        ys = [b["y"] for b in boxes] + [b["y"] + b["d"] for b in boxes]
+        zs = [b["z"] for b in boxes] + [b["z"] + b["h"] for b in boxes]
+        scalars["overall.width"] = ScalarField("overall.width", round(max(xs) - min(xs), 4))
+        scalars["overall.depth"] = ScalarField("overall.depth", round(max(ys) - min(ys), 4))
+        scalars["overall.height"] = ScalarField("overall.height", round(max(zs) - min(zs), 4))
 
     geo = Geometry(
         node=ir.node_kind, elements=tuple(elements), parts=tuple(parts), scalars=scalars,

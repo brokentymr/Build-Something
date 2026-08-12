@@ -35,7 +35,7 @@ MARGIN = 40
 FOOTER_H = 28
 CONTENT_W = PAGE_W - 2 * MARGIN               # 736 — body pinned to printable area
 AVAILABLE = PAGE_H - 2 * MARGIN - FOOTER_H    # 948
-CAPACITY = 900                                 # below available (Lesson 5 buffer)
+CAPACITY = 855                                 # below available (Lesson 5 buffer)
 
 CSS = f"""
 * {{ box-sizing: border-box; }}
@@ -130,7 +130,7 @@ table.grid.strong td:last-child {{ font-weight:700; }}
 /* callout boxes */
 .callouts {{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:18px; margin-top:20px;
   border-top:2px solid #17150f; padding-top:16px; }}
-.callout .ct {{ font-weight:800; font-size:13px; letter-spacing:-0.2px; margin-bottom:5px; }}
+.callout .ct {{ display:block; font-weight:800; font-size:13px; letter-spacing:-0.2px; margin-bottom:5px; }}
 .callout p {{ font-size:10.5px; line-height:1.5; margin:0; color:#4a463d; }}
 .callout.crit .ct {{ color:#a4632e; }}
 .callout.box {{ padding:12px 14px; border-radius:3px; }}

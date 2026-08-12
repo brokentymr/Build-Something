@@ -33,6 +33,11 @@ MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
 MAX_ROUNDS = int(os.environ.get("DESIGN_MAX_ROUNDS", "5"))
 
 
+def _fmt(v: float) -> str:
+    from build_assistant.drawing.primitives import fmt_inches
+    return fmt_inches(v)
+
+
 @dataclass
 class DesignResult:
     ir: DesignIR | None
@@ -99,7 +104,9 @@ class DesignAgent:
  "parts": [{"id":"A","name": str, "element": element_id, "material_role": role,
             "length_expr": expr, "width_expr": expr, "qty_expr": expr,
             "grain":"length|width|none",
-            "finished_faces_len": 0-2, "finished_faces_wid": 0-2, "joint": str}],
+            "finished_faces_len": 0-2, "finished_faces_wid": 0-2, "joint": str,
+            "box_x":expr,"box_y":expr,"box_z":expr,"box_w":expr,"box_d":expr,"box_h":expr,
+            "step_x":expr,"step_y":expr,"step_z":expr}],
  "invariants": [{"kind":"span","params":{"name":str,"unsupported_span":expr,"flex_threshold":number}},
                 {"kind":"backing","params":{"name":str,"surface_width":expr,"backing_width":expr}}],
  "derived": [{"label":str,"value":str,"basis":str,"is_overridable":bool}],
@@ -110,6 +117,14 @@ EXPRESSIONS: arithmetic over param ids and material symbols only. For a material
 role R you may use `R_t` (actual thickness), `R_sw`/`R_sh` (stock size). Allowed:
 + - * / , parentheses, min/max/ceil/floor/round/abs. NEVER write a bare final
 dimension as a literal unless it is a genuine constant (e.g. a 1/4 setback).
+PLACEMENT (required): give every part a 3D box in assembly space, inches, as
+expressions. x=left→right, y=front→back (depth), z=floor→up. box_w/box_d/box_h are
+extents along x/y/z; TWO equal the part's cut size and ONE equals the material
+thickness (use the role's `_t` symbol). box_x/y/z is the part's minimum corner.
+For qty>1 parts that repeat (e.g. shelves up the height), set step_x/y/z to the
+spacing between instances. Placement must form the actual assembled object — the
+engine draws plan, elevations and an exploded view from these boxes, so get them
+right (a side panel is thin in x, a shelf thin in z, a back thin in y).
 RULES: parts must be cuttable from the chosen material's stock. Use joinery that
 makes sense (butt/dado/pocket). Mark finished_faces_* only for faces that get the
 finish. For any unsupported shelf/panel add a span invariant whose flex_threshold
@@ -169,6 +184,69 @@ Keep it genuinely buildable."""
                 f"Issues to fix: {json.dumps(issues)}\n"
                 "Return the full corrected DesignIR JSON only.")
         return DesignIR.from_dict(self._llm_json(system, user, 6000))
+
+    # ---------------------------------------------------------------- packet authoring
+    _PACKET_SCHEMA = {
+        "type": "object", "required": ["title", "subtitle", "callouts", "steps"],
+        "properties": {
+            "title": {"type": "string"}, "subtitle": {"type": "string"},
+            "spec_meta": {"type": "object"},
+            "callouts": {"type": "array", "items": {"type": "object",
+                "required": ["title", "body"], "properties": {
+                    "title": {"type": "string"}, "body": {"type": "string"},
+                    "kind": {"type": "string"}}}},
+            "governing_note": {"type": "string"},
+            "tolerances": {"type": "array"},
+            "steps": {"type": "array", "items": {"type": "object",
+                "required": ["title", "detail"], "properties": {
+                    "phase": {"type": "string"}, "title": {"type": "string"},
+                    "detail": {"type": "string"}, "tools": {"type": "array"},
+                    "fasteners": {"type": "array"}, "check": {"type": "string"}}}},
+            "cure": {"type": "array"}, "care": {"type": "string"},
+        },
+    }
+
+    def author_packet(self, ir, geo) -> dict:
+        """Write the editorial instruction to reference-packet depth. Numbers in
+        prose reference the computed design; the engine still owns every dimension."""
+        parts = [{"id": p.id, "name": p.name, "cut": [_fmt(p.cut_wh()[0]), _fmt(p.cut_wh()[1])],
+                  "qty": p.qty, "material": p.material_id, "joint": p.joint} for p in geo.parts]
+        mats = sorted({p.material_id for p in geo.parts})
+        system = ("You are a master maker writing the build instructions for a printed packet. "
+                  "Be specific, ordered and safe. Reference the real parts by id and name. Do "
+                  "not invent dimensions beyond the parts given; you may cite spacings, grits, "
+                  "cure times and tolerances a builder needs.")
+        user = (
+            f"PROJECT: {ir.node_kind} — {ir.summary}\n"
+            f"MATERIALS: {mats}\nFINISH: {ir.finish_id}\n"
+            f"PARTS: {json.dumps(parts)}\n\n"
+            "Write the packet content as JSON:\n"
+            '{"title": short display title, "subtitle": one-sentence description,\n'
+            ' "spec_meta": {"skill":"Beginner|Intermediate|Advanced","shop_time":"e.g. 6-8 hr",'
+            '"elapsed":"e.g. 2 days incl. finish"},\n'
+            ' "callouts": [3 items {"title","body","kind":"crit|warn|info"}] — the one thing '
+            'most likely to go wrong, a key structural reason, and a tip,\n'
+            ' "governing_note": one paragraph on the critical dimension/joinery concept,\n'
+            ' "tolerances": [{"check","tolerance"}] 4-6 rows,\n'
+            ' "steps": [10-18 ordered {"phase","title","detail","tools":[],"fasteners":[],"check"}] '
+            'grouped by phase (Prep, Cut, Joinery, Assemble, Finish...), each detail 1-2 sentences '
+            'saying HOW and WHY, with a concrete sign-off check,\n'
+            ' "cure": [{"stage","wait","note"}] if there is a finish/glue wait, else [],\n'
+            ' "care": one paragraph on care and maintenance}\n'
+            "Return ONLY the JSON.")
+        try:
+            return self.boundary_call(system, user)
+        except Exception:  # noqa: BLE001
+            return {}
+
+    def boundary_call(self, system, user):
+        raw = self._llm(system, user, 4000)
+        import json as _j
+        a, b = raw.find("{"), raw.rfind("}")
+        obj = _j.loads(raw[a:b + 1])
+        from build_assistant.elicitation.llm import validate
+        validate(obj, self._PACKET_SCHEMA)
+        return obj
 
     # ---------------------------------------------------------------- the loop
     def design(self, description: str, answers: dict, max_rounds: int = MAX_ROUNDS) -> DesignResult:
