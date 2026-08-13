@@ -34,6 +34,10 @@ class Step:
     tolerance: str
     sign_off: str
     troubleshoot_ref: str = ""
+    # Which parts this step puts in place, so the packet can draw the assembly as
+    # it stands at that point. The agent-authored path gets these from the packet
+    # writer; a hand-written recipe has to say so itself.
+    parts: tuple = ()
 
 
 def build_sequence(geo: Geometry, plan: NestingPlan) -> list[Step]:
@@ -92,13 +96,15 @@ def build_sequence(geo: Geometry, plan: NestingPlan) -> list[Step]:
         detail="Glue and brad the ring and ribs into a flat grid on the bottom deck.",
         tools=["18ga brad nailer", "glue"], materials=["parts B–E"],
         fasteners=["18ga x 1in brad @ 4in o.c."],
-        tolerance="frame flat within 1/32 across diagonal", sign_off="core square and flat")
+        tolerance="frame flat within 1/32 across diagonal", sign_off="core square and flat",
+        parts=("C", "D", "E"))
     add(phase="Slab", title="Close the torsion box",
         detail="Glue and brad the top deck to the core; clamp until flat.",
         tools=["clamps", "18ga brad nailer"], materials=["part A"],
         fasteners=["18ga x 1in brad @ 4in o.c."],
         tolerance="no light gap at any rib; box flat within 1/32",
-        sign_off="slab rings solid when tapped", troubleshoot_ref="slab_rattle")
+        sign_off="slab rings solid when tapped", troubleshoot_ref="slab_rattle",
+        parts=("A", "B"))
 
     # ---- PLINTH ----
     add(phase="Plinth", title="Assemble plinth box",
@@ -106,12 +112,13 @@ def build_sequence(geo: Geometry, plan: NestingPlan) -> list[Step]:
         tools=["drill/driver", "impact driver"], materials=["parts F, G"],
         fasteners=["#8 x 2in cabinet screw, pilot 7/64, countersink"],
         tolerance="corners square within 1/64; diagonals equal",
-        sign_off="plinth square, no racking")
+        sign_off="plinth square, no racking", parts=("F", "G"))
     add(phase="Plinth", title="Install platforms",
         detail="Pocket-screw top and bottom platforms into the plinth walls.",
         tools=["pocket-hole jig", "drill/driver"], materials=["part H"],
         fasteners=["1-1/4in pocket screw @ 6in o.c."],
-        tolerance="platforms flush and level", sign_off="platforms fixed, box rigid")
+        tolerance="platforms flush and level", sign_off="platforms fixed, box rigid",
+        parts=("H",))
 
     # ---- DRY FIT ----
     add(phase="Dry fit", title="Dry-fit slab on plinth",

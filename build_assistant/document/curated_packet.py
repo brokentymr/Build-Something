@@ -83,6 +83,8 @@ def _steps(geo: Geometry, plan: NestingPlan) -> list[dict]:
             "phase": st.phase, "title": st.title, "detail": st.detail,
             "tools": list(st.tools), "fasteners": list(st.fasteners),
             "check": st.sign_off,
+            # what this step puts in place, so the packet draws it like any other
+            "parts": list(getattr(st, "parts", ()) or []),
             **({"tolerance": st.tolerance} if st.tolerance else {}),
         })
     return steps

@@ -218,3 +218,25 @@ def test_a_node_without_a_recipe_gets_its_sequence_written():
         raise RuntimeError("no")
     assert curated_packet(geo, plan_nesting(geo), boom)["steps"] == []
     print("  [ok] a node with no recipe has its build sequence written for it")
+
+
+def test_a_curated_recipe_draws_its_assembly_steps_too():
+    """The agent-authored path gets step pictures because the packet writer names
+    the parts. A hand-written recipe has to say so itself, or the same engine
+    produces a materially better document down one path than the other."""
+    import json
+    from build_assistant.core.solver import solve
+    from build_assistant.document.curated_packet import curated_packet
+    ans = json.load(open("fixtures/coffee_table_reference.json"))
+    ans = {k: v for k, v in ans.items() if not isinstance(v, (dict, list))}
+    ans.setdefault("assembly", "one_piece")
+    geo = solve(ans)
+    steps = curated_packet(geo, plan_nesting(geo))["steps"]
+    known = {p.id for p in geo.parts}
+    fitting = [s for s in steps if s.get("parts")]
+    assert fitting, "no step in the recipe says which parts it fits"
+    for s in fitting:
+        assert set(s["parts"]) <= known, (s["title"], s["parts"])
+    # a cut or a cure step fits nothing and gets no picture
+    assert any(not s.get("parts") for s in steps)
+    print(f"  [ok] {len(fitting)} of {len(steps)} curated steps name the parts they fit")
