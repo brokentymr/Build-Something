@@ -565,6 +565,15 @@ def predrill_chart(geo: Geometry) -> Canvas | None:
 # linear board layout (lumber / long stock)
 # --------------------------------------------------------------------------
 
+def _material_name(mid: str) -> str:
+    """What the catalog calls it. Seven pages of a released packet were titled
+    `hardwood_4_4` while its own bill of materials said "4/4 hardwood"."""
+    try:
+        return get_material(mid).display_name
+    except Exception:  # noqa: BLE001 — an unknown id still reads better unscored
+        return mid.replace("_", " ")
+
+
 def board_layout(nest, sheet_index: int) -> Canvas:
     """One board, drawn to scale, with its pieces where the nesting actually put them.
 
@@ -591,7 +600,7 @@ def board_layout(nest, sheet_index: int) -> Canvas:
     crosscuts = sorted({round(along_of(p)[0] + along_of(p)[1], 3) for p in pieces})
 
     c = Canvas(W, 62.0 + board_px + 62.0, stage="as_cut",
-               title=f"{nest.material_id} — board {sheet_index}, "
+               title=f"{_material_name(nest.material_id)} — board {sheet_index}, "
                      f"{fmt_inches(length)} x {fmt_inches(width)} stock")
     x0, y0 = MARGIN, 56.0
     c.rect(x0, y0, length * s, board_px, fill="#fbfaf7", sw=1.0)
