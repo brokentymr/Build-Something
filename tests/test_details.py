@@ -326,3 +326,28 @@ def test_thick_stock_thickness_labels_stay_on_the_canvas():
         assert not c.geometry_overflow()
     print(f"  [ok] 1-1/2in stock keeps its dimensions on the canvas "
           f"({len(contacts[:3])} joint details)")
+
+
+def test_a_fastener_through_a_chunky_member_stays_on_the_canvas():
+    """A joint detail is a magnified crop and the members are drawn clipped to it,
+    but the fastener was placed at the member's true far face. Through a 19in
+    diagonal brace that put the screw head 600px outside a 260px canvas, Gate 3
+    reported a visual defect and the document was refused release."""
+    from build_assistant.generative.detail import find_contacts, joint_detail
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    # two chunky braces meeting face to face — thick across the seam, not thin
+    for p in spec["parts"]:
+        if p["id"] == "A":
+            p.update({"box_x": "0", "box_w": "19", "box_d": "1.5", "box_h": "20.5",
+                      "box_y": "0", "box_z": "0"})
+        if p["id"] == "B":
+            p.update({"box_x": "19", "box_w": "19", "box_d": "1.5", "box_h": "20.5",
+                      "box_y": "0", "box_z": "0"})
+    geo = compile_design(DesignIR.from_dict(spec))
+    for i, ct in enumerate(find_contacts(geo), 1):
+        c = joint_detail(geo, ct, f"D{i}")
+        if c is None:
+            continue
+        assert not c.geometry_overflow(), (i, c.geometry_overflow())
+        assert not c.overflowing_labels(), (i, c.overflowing_labels())
+    print("  [ok] joint details of chunky members stay inside their canvas")

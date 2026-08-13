@@ -451,8 +451,16 @@ def joint_detail(geo: Geometry, contact: dict, tag: str) -> Canvas | None:
     if fast:
         fx = sx(cmid)
         head_out = 1 if (through[0][vl] + through[0][vk] / 2) > at else -1
-        head_y = sy(at + head_out * through_t)
-        tip_y = sy(at - head_out * min(fast.length - through_t, 1.6))
+        # A detail is a magnified crop, and the members are drawn clipped to it —
+        # but the fastener was placed at the member's true far face. Through a 19in
+        # diagonal brace that put the screw head 600px outside a 260px canvas, and
+        # Gate 3 refused the document. The screw head sits on the face you drive
+        # from; if the crop cut that face off, it sits at the edge of the crop.
+        def _in_window(v):
+            return min(vmax, max(vmin, v))
+
+        head_y = sy(_in_window(at + head_out * through_t))
+        tip_y = sy(_in_window(at - head_out * min(fast.length - through_t, 1.6)))
         # shank + pilot hole (dashed) + countersink cone
         c.line(fx, head_y, fx, tip_y, 1.6, color="#7a3f22")
         c.line(fx, seam_y, fx, tip_y, 0.7, dash="3 2", color="#a4632e")
