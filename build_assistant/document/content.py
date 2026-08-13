@@ -11,10 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..core.model import Geometry
-from ..nesting.plan import NestingPlan
-from ..parts.joinery import tool_schedule, fastener_bom
+from ..parts.joinery import tool_schedule
 from ..drawing.primitives import fmt_inches
-from ..build_mode.sequence import Step
 
 REVISION = "A"
 
@@ -129,22 +127,6 @@ def _stage_prose(geo: Geometry) -> str:
     co-planar with the plinth top and does <i>not</i> stack. Cut to {cut}; measure {fin}.</p>"""
 
 
-def _bom_table(geo: Geometry, plan: NestingPlan) -> str:
-    from ..catalog.materials import get_material
-    rows = []
-    for mid, count in plan.purchase().items():
-        mat = get_material(mid)
-        reason = {
-            "ply_075_structural": "Carcass: slab decks, core ring, plinth walls and platforms.",
-            "cement_board_025": "Rigid substrate the microcement bonds to; plywood alone would craze.",
-        }.get(mid, "Structural component.")
-        st = mat.stock_sizes[0]
-        rows.append([mat.display_name, f'{count} sheet(s) @ {fmt_inches(st.w)}&times;{fmt_inches(st.h)}', reason])
-    rows.append(["Microcement kit", "1 kit", "Two base coats + top coat over the full coated area."])
-    rows.append(["Cement-board screws", "1 box", "Wafer head; drywall screws snap under load in cement board."])
-    return _table(["Material", "Quantity", "Reason"], rows)
-
-
 def _tool_table(geo: Geometry) -> str:
     ops = geo.structure["operations"]
     # The operation is an id in the model and an instruction on the page: this
@@ -152,45 +134,6 @@ def _tool_table(geo: Geometry) -> str:
     rows = [[t.tool, t.setting, t.justified_by.replace("_", " ")]
             for t in tool_schedule(ops)]
     return _table(["Tool / bit", "Setting", "Required by operation"], rows)
-
-
-def _cut_table(geo: Geometry) -> str:
-    rows = []
-    for p in geo.parts:
-        L, Wd = p.cut_wh()
-        rows.append([p.id, p.name, f"{fmt_inches(L)} &times; {fmt_inches(Wd)}",
-                     str(p.qty), p.material_id.replace("_", " ")])
-    return _table(["ID", "Part", "As-cut", "Qty", "Material"], rows)
-
-
-def _waste_prose(plan: NestingPlan) -> str:
-    lines = []
-    for mid, nest in plan.nests.items():
-        for s in nest.sheets:
-            lines.append(f"{mid.replace('_',' ')} sheet {s.index}: "
-                         f"{s.utilisation()*100:.1f}% used, {(1-s.utilisation())*100:.1f}% waste.")
-    claim = ""
-    for o in plan.offcut_manifest():
-        if min(o["w"], o["h"]) >= 9 and o["w"]*o["h"] >= 9*18:
-            claim = (f" A {fmt_inches(o['w'])} &times; {fmt_inches(o['h'])} offcut is claimed as a "
-                     "mandatory microcement practice panel &mdash; the first panel you trowel is the "
-                     "worst you will ever trowel.")
-            break
-    return "<p>" + " ".join(lines) + claim + "</p>"
-
-
-def _step_block(st: Step) -> str:
-    chips = lambda items, cls: "".join(f'<span class="chip {cls}">{_e(x)}</span>' for x in items)
-    return f"""
-    <div class="step">
-      <div class="stephead"><span class="stepn">{st.n}</span>
-        <span class="stepphase">{_e(st.phase)}</span>
-        <span class="steptitle">{_e(st.title)}</span></div>
-      <div class="stepdetail">{_e(st.detail)}</div>
-      <div class="chips">{chips(st.tools,'tool')}{chips(st.materials,'mat')}{chips(st.fasteners,'fast')}</div>
-      <div class="steptol"><b>Tolerance:</b> {_e(st.tolerance)}</div>
-      <div class="stepsign">&#9744; Sign-off: {_e(st.sign_off)}<span class="ts">time: __________</span></div>
-    </div>"""
 
 
 def _cure_table() -> str:
@@ -230,17 +173,6 @@ def _care_prose() -> str:
     return """<p>Wipe with a damp cloth and pH-neutral cleaner; no acids or abrasives on the
     microcement. Use coasters under wet glasses until the sealer has fully cured. Re-seal every
     few years or when water stops beading. Felt the plinth feet to protect the floor.</p>"""
-
-
-def _record_table(geo: Geometry) -> str:
-    labels = {
-        "node": "What", "overall_length": "Length", "overall_width": "Width",
-        "overall_height": "Height", "slab_edge_thickness": "Slab edge",
-        "base_type": "Base", "finish_system": "Finish", "plinth_inset": "Reveal",
-        "assembly": "Assembly",
-    }
-    rows = [[labels.get(k, k), _e(str(v))] for k, v in geo.inputs.items()]
-    return _table(["Question", "Answer"], rows)
 
 
 def _derived_table(geo: Geometry) -> str:
