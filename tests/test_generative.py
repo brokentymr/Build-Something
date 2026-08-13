@@ -114,3 +114,24 @@ def test_a_derived_decision_reaches_the_user_as_a_number():
     # prose that is not an expression is left exactly as written
     assert by_label["Finish"].value == "left bare"
     print("  [ok] a derived decision shows its value, and keeps its formula as basis")
+
+
+def test_lumber_is_counted_in_boards_not_sheets():
+    """A hardwood sofa frame reported 'SHEETS 12' on its cover. Nobody buys twelve
+    sheets of 8/4 poplar, and the word is the first thing read on the page."""
+    from build_assistant.generative.model import DesignIR
+    from build_assistant.generative.compiler import compile_design
+    from build_assistant.nesting.plan import plan_nesting
+    from build_assistant.generative.document import _stock_word
+    from tests.test_details import _CASE
+    geo = compile_design(DesignIR.from_dict(_CASE))
+    assert _stock_word(geo, plan_nesting(geo)) == "Sheets"
+    lumber = {**_CASE, "materials": [{"role": "carcass", "material_id": "hardwood_4_4"},
+                                     {"role": "back", "material_id": "hardwood_4_4"}]}
+    geo2 = compile_design(DesignIR.from_dict(lumber))
+    assert _stock_word(geo2, plan_nesting(geo2)) == "Boards"
+    mixed = {**_CASE, "materials": [{"role": "carcass", "material_id": "hardwood_4_4"},
+                                    {"role": "back", "material_id": "ply_025"}]}
+    geo3 = compile_design(DesignIR.from_dict(mixed))
+    assert _stock_word(geo3, plan_nesting(geo3)) == "Stock"
+    print("  [ok] plywood is sheets, lumber is boards, a mix is stock")

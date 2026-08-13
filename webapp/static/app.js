@@ -330,7 +330,7 @@ function resultScreen(pid, st, res){
       <div class="stat"><div class="n">${s.pieces??'—'}</div><div class="l">pieces · ${s.part_types??'—'} types</div></div>
       <div class="stat"><div class="n">${doc.pages??'—'}</div><div class="l">document pages</div></div>
       <div class="stat"><div class="n">${s.weight?('~'+Math.round(s.weight)):'—'}</div><div class="l">lb (est.)</div></div>
-      <div class="stat"><div class="n">${s.sheets?Object.values(s.sheets).reduce((a,b)=>a+b,0):'—'}</div><div class="l">stock sheets</div></div>
+      <div class="stat"><div class="n">${s.sheets?Object.values(s.sheets).reduce((a,b)=>a+b,0):'—'}</div><div class="l">${esc(s.stock_word||'stock')} to buy</div></div>
     </div>
     <div class="gates"><p class="eyebrow">Release gates</p>
       ${gates.map(g=>`<div class="gate"><span class="dot ${g.passed?'':'fail'}"></span>${esc(g.name)}</div>`).join('')}</div>

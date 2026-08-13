@@ -396,12 +396,15 @@ def _design_generatively(pid: str, answers: dict, say):
 
 
 def _summary(geo, plan, doc) -> dict:
+    from build_assistant.generative.document import _stock_word
     return {
         "part_types": geo.part_type_count(), "pieces": geo.piece_count(),
         "weight": geo.scalars.get("weight_estimate").value if "weight_estimate" in geo.scalars else None,
         "coated_area": geo.scalars.get("coated_area").value if "coated_area" in geo.scalars else None,
         "pages": doc["page_count"],
         "sheets": {mid: n.sheet_count() for mid, n in plan.nests.items()},
+        # nobody buys twelve sheets of 8/4 poplar — they buy twelve boards
+        "stock_word": _stock_word(geo, plan).lower(),
         "cut_order": plan.cut_order_constrained(),
         "derived": [{"label": d.label, "value": d.value, "basis": d.basis}
                     for d in geo.derived_decisions],

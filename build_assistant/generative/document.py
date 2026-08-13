@@ -338,7 +338,8 @@ def _cover(geo, plan, hero, kind, title, subtitle, meta, packet) -> str:
              ("Skill", meta.get("skill", "Intermediate")),
              ("Shop time", meta.get("shop_time", "&mdash;")),
              ("Parts", f"{geo.part_type_count()} types / {geo.piece_count()} pcs"),
-             ("Sheets", str(sum(n.sheet_count() for n in plan.nests.values()))),
+             (_stock_word(geo, plan),
+              str(sum(n.sheet_count() for n in plan.nests.values()))),
              ("Finish", _e(_finish_name(geo))),
              ("Elapsed", meta.get("elapsed", "&mdash;"))]
     chiprows = "".join(f'<div class="row"><span class="k">{k}</span>'
@@ -364,6 +365,22 @@ def _cover(geo, plan, hero, kind, title, subtitle, meta, packet) -> str:
       {exploded}
       {calls}
     </div>"""
+
+
+def _stock_word(geo: Geometry, plan) -> str:
+    """"Sheets" for plywood, "Boards" for lumber, "Stock" when it is both.
+
+    A hardwood sofa frame reported "SHEETS 12" on its cover. Nobody buys twelve
+    sheets of 8/4 poplar; they buy twelve boards, and the word is the first thing
+    read on the page."""
+    from ..catalog.materials import get_material
+    cats = {get_material(mid).category for mid in plan.nests}
+    boardish = {"lumber", "hardwood"}
+    if cats and cats <= boardish:
+        return "Boards"
+    if cats and not (cats & boardish):
+        return "Sheets"
+    return "Stock"
 
 
 def _finish_name(geo: Geometry) -> str:
