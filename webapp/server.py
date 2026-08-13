@@ -336,7 +336,33 @@ def _run_generation(pid: str) -> None:
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         STORE.set_status(pid, "configuring")
-        STORE.finish_job(pid, str(exc)[:300])
+        STORE.finish_job(pid, _plain_failure(str(exc)))
+
+
+def _plain_failure(err: str) -> str:
+    """What to tell someone who asked for a sofa and did not get one.
+
+    'PlacementError: part P03 (Right Arm Front Post) has 1 instance(s) touching
+    nothing' is exactly right for the repair loop and useless to a person. The
+    engine keeps its own words in the log; this is the sentence on the screen, and
+    it has to say what happened and what is worth doing about it."""
+    e = err.lower()
+    if "did not resolve" in e or "placementerror" in e:
+        return ("The design did not come together — the parts would not fit into a "
+                "sound assembly within the time budgeted. This one often works on a "
+                "second run, since the design is drawn fresh each time.")
+    if "invarianterror" in e or "fits no stock" in e:
+        return ("The design could not be built from stock that is actually sold at "
+                "these dimensions. Trying again may find a way; changing the size or "
+                "the material will do it more reliably.")
+    if "timed out" in e or "timeout" in e:
+        return ("The design took longer than the time allowed. Running it again "
+                "usually finishes.")
+    if "synthesis failed" in e:
+        return ("The first draft could not be drawn from this description. Adding a "
+                "sentence about how the piece is built — or a reference photo — "
+                "gives it more to work from.")
+    return "This one did not come together: " + err[:200]
 
 
 def _design_generatively(pid: str, answers: dict, say):

@@ -296,10 +296,16 @@ async function generate(pid){
     if(job.status==='failed'){
       draw(job.phase, '', true);
       const note=document.createElement('div'); note.className='notice';
-      note.textContent='This one did not come together: '+(job.error||'unknown');
+      note.textContent = job.error || 'This one did not come together.';
       screen.prepend(note);
+      // The design is drawn fresh each run, so a failure is often just this run.
+      // Offer the thing most likely to work before offering to start over.
+      const retry=document.createElement('button'); retry.className='btn';
+      retry.textContent='Try again';
+      retry.onclick=()=>generate(pid);
+      screen.appendChild(retry);
       const again=document.createElement('button'); again.className='btn alt';
-      again.textContent='Back to questions';
+      again.textContent='Change my answers';
       again.onclick=async()=>{ const st=await api('/api/projects/'+pid);
         stack[stack.length-1]=()=>configureScreen(pid,st); render(); };
       screen.appendChild(again);

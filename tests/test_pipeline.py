@@ -191,3 +191,22 @@ def test_new_node_zero_engine_changes():
     reg = default_registry()
     assert set(reg.all_leaves()) == {"coffee_table", "floating_shelf"}
     print("  [ok] second leaf node added with schema+joinery only, zero engine changes")
+
+
+def test_a_failed_design_says_something_a_person_can_act_on():
+    """'PlacementError: part P03 has 1 instance(s) touching nothing' is exactly
+    right for the repair loop and useless on a screen. The engine keeps its words
+    in the log; the person gets a sentence, and the sentence names the move most
+    likely to work — these designs are drawn fresh each run, so a failure is often
+    just this run."""
+    from webapp.server import _plain_failure
+    msg = _plain_failure("the design did not resolve — PlacementError: part P03 "
+                         "(Right Arm Front Post) has 1 instance(s) touching nothing")
+    assert "P03" not in msg and "PlacementError" not in msg, msg
+    assert "second run" in msg, msg
+    stock = _plain_failure("InvariantError: part D (30.0x130.0) fits no stock size")
+    assert "stock that is actually sold" in stock, stock
+    # anything unrecognised still reaches the user rather than being swallowed
+    odd = _plain_failure("sqlite3.OperationalError: database is locked")
+    assert "database is locked" in odd, odd
+    print("  [ok] a failed design is explained in words, with the move worth making")
