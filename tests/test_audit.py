@@ -90,6 +90,27 @@ def test_housed_joint_is_not_flagged_as_interpenetration():
     print("  [ok] joinery overlap within the cut depth is accepted")
 
 
+def test_an_undersized_element_is_blamed_before_the_part_that_escapes_it():
+    """Two checks can point opposite ways. A part sticks out of the envelope, and
+    the envelope is also smaller than the brief. Told to move the part in, the
+    model shrinks the piece; told the piece is too small, it grows the element and
+    the part escapes again. Neither message alone escapes that loop."""
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]],
+            "elements": [dict(e) for e in _CASE["elements"]],
+            "params": [dict(p) for p in _CASE["params"]]}
+    # the user asked for 30in wide; the element is built to 20
+    spec["elements"][0]["length_expr"] = "20"
+    for p in spec["parts"]:
+        p["box_w"] = p["box_w"].replace("width", "30")
+    issues = audit_placement(compile_design(DesignIR.from_dict(spec)))
+    escapes = [i for i in issues if "placed outside the object" in i]
+    assert escapes, issues
+    assert any("Fix the ELEMENT first" in i for i in escapes), escapes
+    assert any("length_expr should evaluate to 30" in i for i in escapes), escapes
+    assert not any("step_x =" in i for i in escapes), "wrong end blamed"
+    print("  [ok] an undersized element is blamed before the parts that escape it")
+
+
 def test_corner_blocks_can_be_placed_at_corners():
     """Four blocks at four corners do not lie on a line, so no step_x/step_y/step_z
     can place them: two always march out past the end. A live sofa run burned three

@@ -204,13 +204,30 @@ def audit_placement(geo: Geometry) -> list[str]:
         all_by_id: dict[str, list] = {}
         for b in boxes:
             all_by_id.setdefault(b["id"], []).append(b)
+        # Two checks can disagree about which end of this is wrong. A part escapes
+        # the envelope; the envelope is also smaller than the size the user asked
+        # for. Told to move the part in, the model shrinks the piece; told the piece
+        # is too small, it grows the element and the parts escape again. Say which.
+        undersized = {
+            axis: asked for axis, ext, asked in _asked_dimensions(geo)
+            if {"x": ex1 - ex0, "y": ey1 - ey0, "z": ez1 - ez0}[axis] < asked - 1.0}
         for pid, msgs in escaped.items():
             axis = msgs[0][1]
             group = all_by_id.get(pid, [])
-            issues.append(
-                f"part {pid} ({names.get(pid, pid)}) is placed outside the object: "
-                f"{msgs[0][0]}. {len(msgs)} of its {len(group)} instance(s) escape. "
-                + _step_remedy(group, axis, env))
+            head = (f"part {pid} ({names.get(pid, pid)}) is placed outside the object: "
+                    f"{msgs[0][0]}. {len(msgs)} of its {len(group)} instance(s) escape. ")
+            if axis in undersized:
+                have = {"x": ex1 - ex0, "y": ey1 - ey0, "z": ez1 - ez0}[axis]
+                issues.append(
+                    head + f"The part is not what is wrong here: the object's own "
+                    f"element declares only {have:.1f}in on {axis} when the brief asks "
+                    f"for {undersized[axis]:g}in. Fix the ELEMENT first — its "
+                    f"{'length' if axis == 'x' else 'width' if axis == 'y' else 'height'}"
+                    f"_expr should evaluate to {undersized[axis]:g} — and leave the "
+                    f"parts where they are. Shrinking them to fit an undersized "
+                    f"envelope builds the wrong piece.")
+            else:
+                issues.append(head + _step_remedy(group, axis, env))
 
     # ---- 2. floating instances (touch nothing) ----------------------------
     floating: dict[str, list] = {}
