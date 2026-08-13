@@ -432,7 +432,17 @@ Keep it genuinely buildable."""
 
     def design(self, description: str, answers: dict, max_rounds: int = MAX_ROUNDS,
                photos: list | None = None, progress=None) -> DesignResult:
-        trail = []
+        # The trail used to print only once the loop had given up, so a run that
+        # takes twenty minutes was twenty minutes of silence and then a wall of
+        # history. Each round says its piece as it closes.
+        class _Trail(list):
+            def append(self, t):
+                print(f"[design] r{t.get('round')} {t.get('action')} "
+                      f"parts={t.get('parts', '')} {(t.get('error') or '')[:110]}",
+                      flush=True)
+                super().append(t)
+
+        trail = _Trail()
         say = progress or (lambda *a, **k: None)
         say("designing", "drafting the first design")
         try:

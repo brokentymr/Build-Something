@@ -346,10 +346,10 @@ def _design_generatively(pid: str, answers: dict, say):
     res = DESIGNER.design(description, clean, photos=photos, progress=say)
     if res.geo is None:
         raise RuntimeError(res.error or "the design did not come together")
-    for t in res.rounds:                       # the trail is how a failure is read
-        detail = (t.get("error") or "")[:110]
-        print(f"[design {pid}] r{t['round']} {t['action']} "
-              f"parts={t.get('parts','')} {detail}", flush=True)
+    # the trail is how a failure is read; the loop prints it round by round as it
+    # goes, so all that is left is to say which project it belonged to
+    print(f"[design {pid}] {len(res.rounds)} round(s), "
+          f"converged={res.converged}", flush=True)
     if not res.converged:
         # The loop knows it failed and said so; releasing anyway is how a sofa
         # 265 inches long reached a finished packet with every gate green. A
