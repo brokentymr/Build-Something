@@ -463,3 +463,18 @@ def test_a_programming_error_in_repair_is_loud():
         print("  [ok] a signature error in repair surfaces instead of being swallowed")
     else:
         raise AssertionError("a TypeError in repair must not be swallowed")
+
+
+def test_the_client_script_parses():
+    """A syntax error in app.js takes the whole product down and no Python test
+    would notice. The UI changed a lot in one sitting; this is the cheapest guard
+    against shipping a blank screen."""
+    import shutil, subprocess
+    node = shutil.which("node")
+    if not node:
+        print("  [skip] no node available to parse app.js")
+        return
+    for path in ("webapp/static/app.js",):
+        r = subprocess.run([node, "--check", path], capture_output=True, text=True)
+        assert r.returncode == 0, f"{path} does not parse:\n{r.stderr}"
+    print("  [ok] the client script parses")
