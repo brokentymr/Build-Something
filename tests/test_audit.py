@@ -44,15 +44,39 @@ def test_catches_parts_stepped_out_of_the_object():
 def test_catches_floating_parts():
     geo = _with({"C": {"box_z": "200"}})       # shelf far above everything
     issues = audit_placement(geo)
-    assert any("floats free" in i for i in issues), issues
-    print("  [ok] a part touching nothing is caught")
+    floats = [i for i in issues if "floats free" in i]
+    assert floats, issues
+    # "place it against the parts it fixes to" is true and useless — the repair
+    # guesses, overshoots, and comes back as an interpenetration. Name the number,
+    # and make sure the number named actually clears the defect.
+    assert "box_z=47.250" in floats[0], floats[0]
+    fixed = _with({"C": {"box_z": "47.25", "qty_expr": "1"}})
+    assert not [i for i in audit_placement(fixed) if "floats free" in i or "pass through" in i]
+    print("  [ok] a part touching nothing is caught, and the coordinate offered seats it")
 
 
 def test_catches_interpenetration():
-    geo = _with({"C": {"box_x": "0"}})         # shelf driven through the side panel
+    """Two parts lying broadside into each other really do share wood."""
+    geo = _with({"D": {"box_y": "0"}})         # back panel buried in the side panels
     issues = audit_placement(geo)
     assert any("pass through each other" in i for i in issues), issues
     print("  [ok] two parts sharing solid volume are caught")
+
+
+def test_end_buried_in_a_face_is_reported_as_an_undeclared_joint():
+    """A shelf whose end sits inside the side panel is not a collision — it is a
+    dado nobody declared. Told to "shorten one of them", the repair loop shortens
+    it until it touches nothing, gets a floating error, pushes it back, and
+    oscillates: there is no legal position while the audit denies the joint."""
+    geo = _with({"C": {"box_x": "0"}})         # shelf end driven into the side panel
+    issues = [i for i in audit_placement(geo) if "undeclared" in i or "joint's worth" in i]
+    assert issues, audit_placement(geo)
+    msg = issues[0]
+    assert "joint_type" in msg and "joint_depth_expr" in msg, msg
+    assert "box_x=0.750" in msg, msg               # ...and the butt-joint coordinate
+    assert "box_w=27.750" in msg, msg              # shortened by what it gave up
+    assert "pass through each other" not in msg
+    print("  [ok] an end buried in a face is named as a joint, both remedies given")
 
 
 def test_housed_joint_is_not_flagged_as_interpenetration():
@@ -202,8 +226,10 @@ def test_top_capping_two_sides_is_not_told_to_split_into_bays():
     issues = audit_placement(compile_design(DesignIR.from_dict(spec)))
     bays = [i for i in issues if "one piece per bay" in i]
     assert not bays, f"a top panel must never be told to split into bays: {bays}"
-    assert any("pass through each other" in i for i in issues), issues
-    print("  [ok] a top sunk into its sides is a collision, not a bay problem")
+    # It is still a defect — the side ends are half-buried in the lid — and it is
+    # still reported, with the trim that lands them on the lid's underside.
+    assert any("box_h=47.625" in i for i in issues), issues
+    print("  [ok] a top sunk into its sides is a joint to declare, not a bay problem")
 
 
 def test_loop_never_ends_worse_than_the_best_round_it_found():

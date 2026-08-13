@@ -59,6 +59,107 @@ def _relation(a, b, tol=TOL):
     return touching, penetration
 
 
+def _long_axis(b):
+    """The axis a part *runs* along — its length direction."""
+    return max(AXES, key=lambda ax: b[ax[1]])[0]
+
+
+def _joint_shaped(a, b, lo, pen):
+    """True when an overlap reads as an undeclared joint rather than a collision.
+
+    A rail whose end sits inside a post overlaps that post by the post's own
+    thickness — the overlap *is* the joint. Two panels lying broadside into each
+    other overlap by the same amount and mean something completely different.
+
+    The tell is which axis they collide on. If the collision axis is the *length*
+    axis of one of the parts, then that part is arriving end-on: its end has been
+    driven into the other's face, which is what a tenon, dowel or lap looks like
+    before anyone declares it. If the collision axis is neither part's length —
+    both are lying across it — then they genuinely occupy the same wood.
+
+    The bite also has to be a bite: an overlap past half the arriving part's own
+    length is a part swallowed whole, not a joint.
+    """
+    for p in (a, b):
+        if _long_axis(p) != lo:
+            continue
+        ext = dict(AXES)[lo]
+        if pen <= p[ext] * 0.5 + TOL:
+            return p
+    return None
+
+
+def _butt_remedy(arriving, host, lo, ext, pen):
+    """How to back a buried end out to the host's face — from the correct end.
+
+    Which end of the arriving part is inside decides the fix. A shelf whose left
+    end is in the side panel moves right and loses that much length; a side panel
+    whose top is sunk into the lid keeps its origin and loses the length off the
+    top. Translating the wrong end drags the part through the floor.
+    """
+    a_c = arriving[lo] + arriving[ext] / 2.0
+    h_c = host[lo] + host[ext] / 2.0
+    shorter = arriving[ext] - pen
+    if h_c > a_c:                      # the far end is buried — trim it back
+        return (f"keep box_{lo}={arriving[lo]:.3f} and set box_{ext}={shorter:.3f} "
+                f"({pen:.2f} shorter) so it stops under {host['id']}")
+    return (f"set box_{lo}={host[lo] + host[ext]:.3f} and box_{ext}={shorter:.3f} "
+            f"so it starts at {host['id']}'s face instead of inside it")
+
+
+def _flush_remedy(b, boxes, names):
+    """Name the coordinate that seats a floating instance against its neighbour.
+
+    'Place it against the parts it fixes to' is true and useless: the repair
+    guesses a coordinate, overshoots into the neighbour, gets an interpenetration
+    error, pulls back, floats again. Handing over the arithmetic ends that.
+    """
+    # Seating one loose part against another loose part fixes nothing, and a
+    # sibling instance of the same part is not what it fastens to.
+    floaters = {id(x) for x in boxes if not any(
+        t or pen > 0 for t, pen in (_relation(x, o) for o in boxes if o is not x))}
+    anchored = [o for o in boxes if id(o) not in floaters]
+    hosts = [o for o in anchored if o["id"] != b["id"]]
+    if not hosts:
+        return ("Nothing in the assembly is anchored for it to sit against — the "
+                "placement has come apart. Rebuild the boxes from the ground up: one "
+                "part on z=0, everything else referenced to a part already placed.")
+
+    def centre_gap(o):
+        return sum(abs((b[lo] + b[ext] / 2) - (o[lo] + o[ext] / 2)) for lo, ext in AXES)
+
+    best = None
+    # Rather than reason about which axis can be closed, propose the move and test
+    # it: a candidate is only advice worth giving if the moved part actually ends
+    # up touching something and inside nothing.
+    for o in sorted(hosts, key=centre_gap)[:24]:
+        for i, (lo, ext) in enumerate(AXES):
+            for new in (o[lo] - b[ext], o[lo] + o[ext], o[lo], o[lo] + o[ext] - b[ext]):
+                delta = new - b[lo]
+                if abs(delta) < TOL:
+                    continue
+                moved = {**b, lo: new}
+                touches = clear = False
+                for other in anchored:
+                    t, pen = _relation(moved, other)
+                    if pen > 0.06:
+                        clear = False
+                        break
+                    touches = touches or t
+                else:
+                    clear = touches
+                if clear and (best is None or abs(delta) < abs(best[0])):
+                    best = (delta, o, lo, new)
+    if best is None:
+        return ("Nothing in the assembly lines up with it — it is off on its own, not "
+                "merely loose. Give it a box_x/box_y/box_z that shares two axes with "
+                "the parts it fastens to.")
+    delta, o, lo, new = best
+    return (f"Set box_{lo}={new:.3f} (a move of {delta:+.2f}in) and it lands flush "
+            f"against {o['id']} ({names.get(o['id'], o['id'])}). Flush is contact, not "
+            f"overlap — do not push past that face, and do not leave a gap short of it.")
+
+
 def envelope(geo: Geometry):
     """The object's own declared outer box, from its elements."""
     els = geo.elements
@@ -112,15 +213,16 @@ def audit_placement(geo: Geometry) -> list[str]:
                 + _step_remedy(group, axis, env))
 
     # ---- 2. floating instances (touch nothing) ----------------------------
-    floating: dict[str, int] = {}
+    floating: dict[str, list] = {}
     for i, b in enumerate(boxes):
         rel = [_relation(b, o) for j, o in enumerate(boxes) if i != j]
         if not any(t or pen > 0 for t, pen in rel):
-            floating[b["id"]] = floating.get(b["id"], 0) + 1
-    for pid, n in floating.items():
+            floating.setdefault(b["id"], []).append(b)
+    for pid, group in floating.items():
         issues.append(
-            f"part {pid} ({names.get(pid, pid)}) has {n} instance(s) touching nothing — "
-            f"it floats free of the assembly. Place it against the parts it fixes to.")
+            f"part {pid} ({names.get(pid, pid)}) has {len(group)} instance(s) touching "
+            f"nothing — it floats free of the assembly. "
+            + _flush_remedy(group[0], boxes, names))
 
     # ---- 3. interpenetration ----------------------------------------------
     seen_pairs = set()
@@ -175,6 +277,28 @@ def audit_placement(geo: Geometry) -> list[str]:
                         f"set qty to 2 per level and step_{lo}={step:.3f} so the second piece "
                         f"starts on the far side of {obstacle['id']}. Adjust the cut list "
                         f"length to match.")
+                elif _joint_shaped(a, b, lo, pen):
+                    # The end of one part is buried in the face of another. That is
+                    # a joint nobody declared, and telling the repair to "shorten
+                    # one of them" is what starts the oscillation: shortened, the
+                    # part touches nothing and comes back as floating; pushed back,
+                    # it overlaps again. There is no legal position while the audit
+                    # refuses to believe in the joint. So name both ways out.
+                    arriving = _joint_shaped(a, b, lo, pen)
+                    host = b if arriving is a else a
+                    flush = _butt_remedy(arriving, host, lo, ext, pen)
+                    issues.append(
+                        f"the end of {arriving['id']} ({names.get(arriving['id'], arriving['id'])}) "
+                        f"sits {pen:.2f}in inside {host['id']} "
+                        f"({names.get(host['id'], host['id'])}) along {lo}. That is a joint's "
+                        f"worth of wood, not a collision — these two parts belong together, so "
+                        f"do NOT shorten one until it floats free. Take one of two ways out: "
+                        f"(1) declare the joint — on part {arriving['id']} set "
+                        f"joint_type to mortise_tenon, tenon, dowel, domino, half_lap or "
+                        f"bridle and joint_depth_expr to at least {pen:.3f}, which tells the "
+                        f"cut list and the joint details to expect it; or (2) butt it — on "
+                        f"part {arriving['id']}, {flush}. Flush means touching, not "
+                        f"entering: do not pull it back past the face, or it will float.")
                 else:
                     start = thicker[lo] + thicker[ext]
                     issues.append(
