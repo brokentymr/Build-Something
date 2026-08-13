@@ -119,10 +119,18 @@ def _inv_flex_span(geo: Geometry) -> None:
 def _inv_continuous_backing(geo: Geometry) -> None:
     """Continuous backing exists behind the full width of every finish-bearing surface."""
     for rec in geo.structure.get("backing", []):
-        if rec["backing_width"] < rec["surface_width"] - TOL:
+        backing, surface = rec["backing_width"], rec["surface_width"]
+        if backing < surface - TOL:
+            # A sofa spent four rounds shaving the surface a little at a time —
+            # 13in, 10in, 9in, 7.5in — because the message named the mismatch and
+            # no way out of it. Both ways out, with the number.
             raise InvariantError(
-                f"backing {rec['backing_width']} narrower than finish-bearing surface "
-                f"{rec['surface_width']} for {rec['name']}"
+                f"backing {backing} narrower than finish-bearing surface {surface} "
+                f"for {rec['name']}. A surface that carries a finish needs something "
+                f"continuous behind its whole width: either widen the backing to "
+                f"{surface:g} (the usual answer — make that member as wide as the "
+                f"surface it supports), or narrow the surface to {backing:g}. "
+                f"Shaving the surface by an inch at a time does not converge."
             )
 
 

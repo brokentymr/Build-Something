@@ -242,7 +242,8 @@ Keep it genuinely buildable."""
 
     # ---------------------------------------------------------------- repair
     def repair(self, ir: DesignIR, issues: list, error: str,
-               photos: list | None = None, settled: list | None = None) -> DesignIR:
+               photos: list | None = None, settled: list | None = None,
+               started_parts: int = 0) -> DesignIR:
         system = ("You revise a parametric build model to fix the listed problems. Keep the "
                   "same JSON shape. Change only what's needed. The engine computes numbers "
                   "from your formulas.")
@@ -252,6 +253,10 @@ Keep it genuinely buildable."""
                 f"Issues to fix: {json.dumps(issues)}\n"
                 "Fix ALL of them in this one revision — they are checked together, and "
                 "a revision that trades one for another makes no progress.\n"
+                + (f"NOTE: this design started at {started_parts} parts and now has "
+                   f"{len(ir.parts)}. Adding parts is not fixing these defects — "
+                   f"resize and reposition what is already there.\n"
+                   if started_parts and len(ir.parts) > 2 * started_parts else "")
                 + (f"Already settled in earlier rounds, do NOT reintroduce: "
                    f"{json.dumps(settled[:8])}\n" if settled else "")
                 + "Return the full corrected DesignIR JSON only.")
@@ -442,6 +447,7 @@ Keep it genuinely buildable."""
         # Defects seen in an earlier round and absent now are settled; naming them
         # back to the repair is what stops it undoing its own work.
         seen_defects, settled = set(_defect_keys(error)), []
+        first_parts = len(ir.parts)          # a runaway repair is a repair going nowhere
 
         for r in range(1, max_rounds + 1):
             say("reviewing", f"round {r} of {max_rounds} — checking the design holds up")
@@ -461,7 +467,14 @@ Keep it genuinely buildable."""
             say("repairing", _repair_note(r, max_rounds, error, issues))
             try:
                 ir = self.repair(ir, issues or [{"what": error, "fix_hint": "make it compile"}],
-                                 error, photos=photos, settled=settled)
+                                 error, photos=photos, settled=settled,
+                                 started_parts=first_parts)
+            except (TypeError, NameError, AttributeError):
+                # These are bugs in this code, not weather. Swallowing them as
+                # "repair_failed" hid a NameError for several runs — every repair
+                # raising, the loop reporting the original defect, and the design
+                # looking merely difficult. A programming error must be loud.
+                raise
             except Exception as exc:  # noqa: BLE001
                 # One repair that fell over — a timeout, a malformed reply — is not
                 # the end of the design. Ending the loop here threw away three

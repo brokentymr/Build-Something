@@ -309,7 +309,7 @@ def test_the_loop_actually_reaches_a_repair_round():
                                       "buildable": True}
     repairs = []
 
-    def repair(ir, issues, error, photos=None, settled=None):
+    def repair(ir, issues, error, photos=None, settled=None, started_parts=0):
         repairs.append(photos)
         return DesignIR.from_dict(_CASE)          # the sound version
 
@@ -340,7 +340,7 @@ def test_one_failed_repair_does_not_end_the_design():
                                       "buildable": True}
     calls = []
 
-    def repair(ir, issues, error, photos=None, settled=None):
+    def repair(ir, issues, error, photos=None, settled=None, started_parts=0):
         calls.append(len(calls))
         if len(calls) == 1:
             raise TimeoutError("The read operation timed out")
@@ -385,7 +385,7 @@ def test_the_repair_is_told_what_earlier_rounds_settled():
     seen = []
     drafts = [DesignIR.from_dict(stepped), DesignIR.from_dict(_CASE)]
 
-    def repair(ir, issues, error, photos=None, settled=None):
+    def repair(ir, issues, error, photos=None, settled=None, started_parts=0):
         seen.append(list(settled or []))
         return drafts.pop(0)
 
@@ -408,3 +408,53 @@ def test_every_defect_reaches_the_repair_not_the_first_four():
     _, error = agent._try_compile(DesignIR.from_dict(spec))
     assert error.count("|") >= 3, f"only {error.count('|')+1} defect(s) reached the repair"
     print(f"  [ok] {error.count('|')+1} defects travel to the repair together")
+
+
+def test_a_repair_that_triples_the_part_count_is_told_so():
+    """The sofa went 31 parts to 99 across eight rounds, adding members to problems
+    that needed resizing. Growth like that is a repair going nowhere."""
+    from webapp.designer import DesignAgent
+    from build_assistant.generative.model import DesignIR
+    from tests.test_details import _CASE
+
+    agent = DesignAgent()
+    prompts = []
+    agent._llm_json = lambda system, user, *a, **k: (prompts.append(user)
+                                                     or dict(_CASE))
+    ir = DesignIR.from_dict(_CASE)
+    agent.repair(ir, [{"what": "x"}], "err", started_parts=1)   # 4 parts vs 1
+    assert "Adding parts is not fixing" in prompts[-1], prompts[-1][-400:]
+
+    prompts.clear()
+    agent.repair(ir, [{"what": "x"}], "err", started_parts=4)   # no growth
+    assert "Adding parts is not fixing" not in prompts[-1]
+    print("  [ok] a runaway repair is told its growth is not the fix")
+
+
+def test_a_programming_error_in_repair_is_loud():
+    """A NameError in repair() was recorded as "repair_failed" and the loop carried
+    on, so every repair raised for several runs while the design merely looked
+    difficult. Bugs are not weather."""
+    from webapp.designer import DesignAgent
+    from build_assistant.generative.model import DesignIR
+    from tests.test_details import _CASE
+
+    broken = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in broken["parts"]:
+        if p["id"] == "C":
+            p["box_z"] = "200"
+
+    agent = DesignAgent()
+    agent.synthesize = lambda *a, **k: DesignIR.from_dict(broken)
+    agent.critique = lambda *a, **k: {"issues": [], "buildable": True}
+
+    def stale_stub(ir, issues, error):          # missing the newer keyword args
+        return DesignIR.from_dict(_CASE)
+
+    agent.repair = stale_stub
+    try:
+        agent.design("a case", {}, max_rounds=2)
+    except TypeError:
+        print("  [ok] a signature error in repair surfaces instead of being swallowed")
+    else:
+        raise AssertionError("a TypeError in repair must not be swallowed")

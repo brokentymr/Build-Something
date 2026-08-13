@@ -379,3 +379,23 @@ def test_parts_that_cannot_sit_side_by_side_are_told_so():
     assert "overlap them" in esc[0], esc[0]
     assert "different axis" in esc[0]
     print("  [ok] parts that cannot fit side by side are told so, not given a bad step")
+
+
+def test_a_narrow_backing_names_both_ways_out():
+    """A sofa spent four rounds shaving a surface an inch at a time — 13, 10, 9,
+    7.5 — because the message named the mismatch and no way out of it."""
+    from build_assistant.core.invariants import _inv_continuous_backing, InvariantError
+
+    class Geo:
+        structure = {"backing": [{"name": "Back panel", "backing_width": 3.5,
+                                  "surface_width": 13.0}]}
+    try:
+        _inv_continuous_backing(Geo())
+    except InvariantError as exc:
+        msg = str(exc)
+    else:
+        raise AssertionError("a 3.5in backing under a 13in surface must fail")
+    assert "widen the backing to 13" in msg, msg
+    assert "narrow the surface to 3.5" in msg, msg
+    assert "does not converge" in msg
+    print("  [ok] a narrow backing names both ways out, with the numbers")
