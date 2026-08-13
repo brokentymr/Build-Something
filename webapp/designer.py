@@ -76,7 +76,11 @@ class DesignAgent:
         req = urllib.request.Request(self.base + "/v1/messages", data=body, method="POST",
             headers={"content-type": "application/json", "x-api-key": self.key,
                      "anthropic-version": "2023-06-01"})
-        with urllib.request.urlopen(req, timeout=120) as r:
+        # A 31-part sofa repair at ten thousand tokens does not come back inside two
+        # minutes, and the round was lost to a read timeout. Give a reply time in
+        # proportion to how much of it we asked for.
+        timeout = min(600.0, max(120.0, max_tokens * 0.035))
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.loads(r.read())
         # Why the model stopped matters. A reply cut off at the token ceiling is
         # not malformed JSON, and treating it as such sent the retry to ask for
@@ -451,8 +455,11 @@ Keep it genuinely buildable."""
                 ir = self.repair(ir, issues or [{"what": error, "fix_hint": "make it compile"}],
                                  error, photos=photos)
             except Exception as exc:  # noqa: BLE001
+                # One repair that fell over — a timeout, a malformed reply — is not
+                # the end of the design. Ending the loop here threw away three
+                # rounds of real progress because the fourth call timed out.
                 trail.append({"round": r, "action": "repair_failed", "error": str(exc)})
-                break
+                continue
             geo, error = self._try_compile(ir)
             trail.append({"round": r, "action": "repair", "error": error,
                           "parts": geo.piece_count() if geo else 0})

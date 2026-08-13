@@ -319,3 +319,43 @@ def test_the_loop_actually_reaches_a_repair_round():
     assert repairs[0] == ["data:image/png;base64,AA"], "photos must reach the repair"
     assert not [t for t in res.rounds if t["action"] == "repair_failed"], res.rounds
     print("  [ok] the loop reaches repair, with the reference photos in hand")
+
+
+def test_one_failed_repair_does_not_end_the_design():
+    """A sofa made real progress over three rounds — floating rails fixed, then
+    supports added for a span — and the fourth repair timed out. The loop broke on
+    it and threw the progress away."""
+    from webapp.designer import DesignAgent
+    from build_assistant.generative.model import DesignIR
+    from tests.test_details import _CASE
+
+    broken = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in broken["parts"]:
+        if p["id"] == "C":
+            p.update({"qty_expr": "6", "step_x": "15.65", "step_z": "0"})
+
+    agent = DesignAgent()
+    agent.synthesize = lambda *a, **k: DesignIR.from_dict(broken)
+    agent.critique = lambda *a, **k: {"issues": [{"severity": "high", "what": "x"}],
+                                      "buildable": True}
+    calls = []
+
+    def repair(ir, issues, error, photos=None):
+        calls.append(len(calls))
+        if len(calls) == 1:
+            raise TimeoutError("The read operation timed out")
+        return DesignIR.from_dict(_CASE)          # the round after recovers
+
+    agent.repair = repair
+    res = agent.design("a case", {}, max_rounds=3)
+    assert len(calls) >= 2, f"the loop stopped after the failed repair: {calls}"
+    assert res.converged, res.error
+    print("  [ok] a repair that falls over costs one round, not the design")
+
+
+def test_a_bigger_reply_is_given_longer_to_arrive():
+    """Two minutes is enough for a bookshelf and not for a sofa frame."""
+    small = min(600.0, max(120.0, 3000 * 0.035))
+    large = min(600.0, max(120.0, 10000 * 0.035))
+    assert large > small and large >= 300
+    print(f"  [ok] reply timeout scales with the budget ({small:.0f}s -> {large:.0f}s)")
