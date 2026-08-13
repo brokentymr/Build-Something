@@ -290,9 +290,10 @@ async function generate(pid){
       ${failed?'':'<div class="spinner"></div>'}
       <ul class="steps">${PHASES.map(([k,label],i)=>
         `<li class="${i<at?'done':i===at?'active':''}">${esc(label)}</li>`).join('')}</ul>
-      <p class="muted" style="margin-top:16px">A design this app has not seen before takes
-        a few minutes — it draws, checks itself and fixes what it finds. You can leave
-        and come back; it keeps going.</p>`;
+      <p class="muted" style="margin-top:16px">A design this app has not seen before
+        usually takes five to fifteen minutes — it draws the piece, checks its own work
+        and fixes what it finds, and the harder pieces take more rounds of that. You can
+        leave and come back; it keeps going without you.</p>`;
   };
   draw('planning','');
 
