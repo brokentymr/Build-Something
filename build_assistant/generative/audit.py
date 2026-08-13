@@ -65,28 +65,35 @@ def _long_axis(b):
 
 
 def _joint_shaped(a, b, lo, pen):
-    """True when an overlap reads as an undeclared joint rather than a collision.
+    """The part whose end is in the other, when an overlap is a joint's worth deep.
 
-    A rail whose end sits inside a post overlaps that post by the post's own
-    thickness — the overlap *is* the joint. Two panels lying broadside into each
-    other overlap by the same amount and mean something completely different.
+    A rail whose end sits inside a post overlaps it by one board thickness — that
+    overlap *is* the joint. Two panels lying broadside into each other overlap by
+    exactly the same amount and mean something completely different, and no
+    geometry tells the two apart: they are the same boxes. An earlier version of
+    this tried, using which axis the parts collided on, and got it wrong for a
+    corner block meeting an arm panel face-on — three rounds of a live run went to
+    a pair the audit was describing backwards.
 
-    The tell is which axis they collide on. If the collision axis is the *length*
-    axis of one of the parts, then that part is arriving end-on: its end has been
-    driven into the other's face, which is what a tenon, dowel or lap looks like
-    before anyone declares it. If the collision axis is neither part's length —
-    both are lying across it — then they genuinely occupy the same wood.
-
-    The bite also has to be a bite: an overlap past half the arriving part's own
-    length is a part swallowed whole, not a joint.
+    So this no longer classifies. Any overlap within one board thickness is
+    reported as *possibly* a joint, with both remedies and the numbers for each,
+    and the model — which knows whether it meant a tenon there — picks. Deeper
+    than a board is a collision on any reading, and only one remedy applies.
     """
-    for p in (a, b):
-        if _long_axis(p) != lo:
-            continue
-        ext = dict(AXES)[lo]
-        if pen <= p[ext] * 0.5 + TOL:
-            return p
-    return None
+    if pen > min(_stock_of(a), _stock_of(b)) + TOL:
+        return None
+    # Whichever part is arriving end-on gets the advice; the one whose length runs
+    # along the collision axis is the better guess, else the thinner of the two.
+    ends_on = [p for p in (a, b) if _long_axis(p) == lo]
+    if ends_on:
+        return ends_on[0]
+    ext = dict(AXES)[lo]
+    return a if a[ext] <= b[ext] else b
+
+
+def _stock_of(b):
+    """A part's own board thickness — the smallest of its three extents."""
+    return min(b[ext] for _, ext in AXES)
 
 
 def _butt_remedy(arriving, host, lo, ext, pen):
@@ -100,6 +107,14 @@ def _butt_remedy(arriving, host, lo, ext, pen):
     a_c = arriving[lo] + arriving[ext] / 2.0
     h_c = host[lo] + host[ext] / 2.0
     shorter = arriving[ext] - pen
+    if shorter <= 0.02:
+        # Nothing to trim: the part lies wholly inside the other on this axis. It
+        # has not been pushed a board too far, it has been put in the wrong place —
+        # and "reduce box_d by 0.20" on a 0.20in overlap deletes it.
+        low, high = host[lo] - arriving[ext], host[lo] + host[ext]
+        pick = low if abs(low - arriving[lo]) <= abs(high - arriving[lo]) else high
+        return (f"set box_{lo}={pick:.3f} — it sits wholly within {host['id']} on "
+                f"{lo}, so there is nothing to shorten; it has to move clear")
     if h_c > a_c:                      # the far end is buried — trim it back
         return (f"keep box_{lo}={arriving[lo]:.3f} and set box_{ext}={shorter:.3f} "
                 f"({pen:.2f} shorter) so it stops under {host['id']}")
@@ -295,28 +310,28 @@ def audit_placement(geo: Geometry) -> list[str]:
                         f"starts on the far side of {obstacle['id']}. Adjust the cut list "
                         f"length to match.")
                 elif _joint_shaped(a, b, lo, pen):
-                    # The end of one part is buried in the face of another. That is
-                    # a joint nobody declared, and telling the repair to "shorten
-                    # one of them" is what starts the oscillation: shortened, the
-                    # part touches nothing and comes back as floating; pushed back,
-                    # it overlaps again. There is no legal position while the audit
-                    # refuses to believe in the joint. So name both ways out.
+                    # One board thickness of overlap. Told only to "shorten one of
+                    # them", the repair shortens until the part touches nothing,
+                    # gets a floating error, pushes it back, and oscillates: there
+                    # is no legal position while the audit denies the joint could be
+                    # deliberate. Give both ways out and let the model — which knows
+                    # whether it meant a tenon there — choose.
                     arriving = _joint_shaped(a, b, lo, pen)
                     host = b if arriving is a else a
                     flush = _butt_remedy(arriving, host, lo, ext, pen)
                     issues.append(
-                        f"the end of {arriving['id']} ({names.get(arriving['id'], arriving['id'])}) "
-                        f"sits {pen:.2f}in inside {host['id']} "
-                        f"({names.get(host['id'], host['id'])}) along {lo}. That is a joint's "
-                        f"worth of wood, not a collision — these two parts belong together, so "
-                        f"do NOT shorten one until it floats free. Take one of two ways out: "
-                        f"(1) declare the joint — on part {arriving['id']} set "
-                        f"joint_type to one of tenon, dowel, domino, half_lap or bridle "
-                        f"(exactly those words) and joint_depth_expr to at least "
-                        f"{pen:.3f}, which tells the "
-                        f"cut list and the joint details to expect it; or (2) butt it — on "
-                        f"part {arriving['id']}, {flush}. Flush means touching, not "
-                        f"entering: do not pull it back past the face, or it will float.")
+                        f"{arriving['id']} ({names.get(arriving['id'], arriving['id'])}) and "
+                        f"{host['id']} ({names.get(host['id'], host['id'])}) overlap by "
+                        f"{pen:.2f}in along {lo} — one board thickness, so this is either a "
+                        f"joint you have not declared or a part pushed one board too far. "
+                        f"Decide which, and do NOT shorten one until it floats free: "
+                        f"(1) if they are jointed — on part {arriving['id']} set joint_type to "
+                        f"one of tenon, dowel, domino, half_lap or bridle (exactly those "
+                        f"words) and joint_depth_expr to at least {pen:.3f}, which tells the "
+                        f"cut list and the joint details to expect it; or (2) if they should "
+                        f"merely meet — on part {arriving['id']}, {flush}. Meeting means "
+                        f"touching, not entering: do not pull it back past the face either, "
+                        f"or it will float.")
                 else:
                     start = thicker[lo] + thicker[ext]
                     issues.append(

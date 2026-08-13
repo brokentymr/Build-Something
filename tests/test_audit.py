@@ -58,9 +58,13 @@ def test_catches_floating_parts():
 def test_catches_interpenetration():
     """Two parts lying broadside into each other really do share wood."""
     geo = _with({"D": {"box_y": "0"}})         # back panel buried in the side panels
-    issues = audit_placement(geo)
-    assert any("pass through each other" in i for i in issues), issues
-    print("  [ok] two parts sharing solid volume are caught")
+    issues = [i for i in audit_placement(geo) if "overlap by" in i or "pass through" in i]
+    assert issues, audit_placement(geo)
+    # A 1/4in back lying inside a side panel has nothing to shorten — advice to
+    # "reduce box_d by 0.20" on a 0.20in overlap deletes the part.
+    assert all("box_d=0.000" not in i for i in issues), issues
+    assert any("wholly within" in i for i in issues), issues
+    print("  [ok] a part lying wholly inside another is told to move, not to shrink")
 
 
 def test_end_buried_in_a_face_is_reported_as_an_undeclared_joint():
@@ -69,7 +73,7 @@ def test_end_buried_in_a_face_is_reported_as_an_undeclared_joint():
     it until it touches nothing, gets a floating error, pushes it back, and
     oscillates: there is no legal position while the audit denies the joint."""
     geo = _with({"C": {"box_x": "0"}})         # shelf end driven into the side panel
-    issues = [i for i in audit_placement(geo) if "undeclared" in i or "joint's worth" in i]
+    issues = [i for i in audit_placement(geo) if "one board thickness" in i]
     assert issues, audit_placement(geo)
     msg = issues[0]
     assert "joint_type" in msg and "joint_depth_expr" in msg, msg
@@ -309,6 +313,53 @@ def test_loop_never_ends_worse_than_the_best_round_it_found():
     assert audit_placement(res.geo) == [], "the loop shipped the regressed model"
     assert any(t["action"] == "revert_to_best" for t in res.rounds), res.rounds
     print("  [ok] the loop keeps the best model it found, not the last one")
+
+
+def test_a_reviewer_that_never_runs_out_of_opinions_cannot_veto_a_clean_design():
+    """The AI judge may request, it may not approve — and it may not indefinitely
+    refuse either. A live sofa compiled perfectly clean at round 6 with 44 parts;
+    the reviewer still wanted an arm-to-frame connection spelled out, so the loop
+    repaired again, went to 56 parts, broke the placement and never got back. A
+    blocking note buys exactly one round from a clean design."""
+    from webapp.designer import DesignAgent
+    agent = DesignAgent()
+    agent.synthesize = lambda *a, **k: DesignIR.from_dict(_CASE)
+    agent.critique = lambda *a, **k: {
+        "issues": [{"severity": "high", "what": "the arms want a stated connection"}],
+        "buildable": True}
+    repairs = [0]
+
+    def repair(*a, **k):
+        repairs[0] += 1
+        return DesignIR.from_dict(_CASE)          # clean again, reviewer unmoved
+
+    agent.repair = repair
+    res = agent.design("sofa", {}, max_rounds=8)
+    assert res.converged, res.error
+    assert repairs[0] == 1, f"the objection should buy one round, not {repairs[0]}"
+    assert "the arms want a stated connection" in res.ir.warnings, res.ir.warnings
+    print("  [ok] a standing objection buys one round, then ships as a warning")
+
+
+def test_an_objection_survives_the_revert_it_caused():
+    """If that one round makes things worse, the clean model comes back — and the
+    reviewer's objection has to travel with it rather than being lost with the
+    rounds that were discarded."""
+    from webapp.designer import DesignAgent
+    broken = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in broken["parts"]:
+        if p["id"] == "C":
+            p.update({"qty_expr": "6", "step_x": "15.65", "step_z": "0"})
+    agent = DesignAgent()
+    agent.synthesize = lambda *a, **k: DesignIR.from_dict(_CASE)
+    agent.critique = lambda *a, **k: {"issues": [{"severity": "high", "what": "arms"}],
+                                      "buildable": True}
+    agent.repair = lambda *a, **k: DesignIR.from_dict(broken)
+
+    res = agent.design("sofa", {}, max_rounds=3)
+    assert res.converged and audit_placement(res.geo) == []
+    assert "arms" in res.ir.warnings, res.ir.warnings
+    print("  [ok] the objection ships with the model it was raised against")
 
 
 def test_wide_solid_panel_is_built_as_a_glue_up():

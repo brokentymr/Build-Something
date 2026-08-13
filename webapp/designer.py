@@ -470,6 +470,7 @@ Keep it genuinely buildable."""
         # back to the repair is what stops it undoing its own work.
         seen_defects, settled = set(_defect_keys(error)), []
         first_parts = len(ir.parts)          # a runaway repair is a repair going nowhere
+        spent_on_critique, clean_notes = False, []
 
         for r in range(1, max_rounds + 1):
             say("reviewing", f"round {r} of {max_rounds} — checking the design holds up")
@@ -478,14 +479,31 @@ Keep it genuinely buildable."""
             blocking = [i for i in issues if i.get("severity") == "high"]
             trail.append({"round": r, "action": "critique", "error": error,
                           "issues": issues, "buildable": crit.get("buildable", bool(geo))})
-            # Converged: compiles clean, invariants hold, no HIGH-severity issues left.
-            # Remaining med/low notes are attached as warnings, not blockers.
-            if geo and not error and not blocking:
+            # Converged: compiles clean, invariants hold, and the reviewer's
+            # blocking notes have had their one round.
+            #
+            # A HIGH-severity critique used to block convergence for as long as the
+            # reviewer kept having opinions. A live sofa compiled perfectly clean at
+            # round 6 with 44 parts; the reviewer still wanted an arm-to-frame
+            # connection spelled out, so the loop repaired again, went to 56 parts,
+            # broke the placement, and never got back. Only the keep-the-best guard
+            # saved the run. That is a judge with a veto, which is the mirror of the
+            # rule this engine already enforces the other way: the AI may request,
+            # it may not approve. It may not indefinitely refuse either. So a
+            # blocking note buys exactly one repair round from a clean design; if
+            # the design comes back clean and the reviewer still objects, the
+            # objection ships as a warning on a document that is otherwise sound.
+            if geo and not error and (not blocking or spent_on_critique):
                 for i in issues:
                     note = i.get("what", "")
                     if note and note not in ir.warnings:
                         ir.warnings.append(note)
                 return DesignResult(ir, geo, True, trail)
+            if geo and not error and blocking:
+                spent_on_critique = True
+                # If this round makes things worse we revert to the clean model, and
+                # the reviewer's objection has to travel with it.
+                clean_notes = [i.get("what", "") for i in blocking if i.get("what")]
             say("repairing", _repair_note(r, max_rounds, error, issues))
             try:
                 ir = self.repair(ir, issues or [{"what": error, "fix_hint": "make it compile"}],
@@ -519,6 +537,11 @@ Keep it genuinely buildable."""
             trail.append({"round": "final", "action": "revert_to_best",
                           "error": best[3], "parts": best[2].piece_count() if best[2] else 0})
             _, ir, geo, error = best
+            # The reverted model is the one the reviewer objected to; ship the
+            # objection with it rather than losing it with the discarded rounds.
+            for note in clean_notes:
+                if note not in ir.warnings:
+                    ir.warnings.append(note)
 
         converged = geo is not None and not error
         if geo is not None and error.startswith("PlacementError"):
