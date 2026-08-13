@@ -191,3 +191,30 @@ def test_a_node_without_a_sequence_recipe_still_releases():
     assert packet["steps"] == [], "expected no sequence for a node without a recipe"
     assert packet["extra_sections"], "the node still gets its tool and cure tables"
     print("  [ok] a node with no sequence recipe produces a packet instead of a crash")
+
+
+def test_a_node_without_a_recipe_gets_its_sequence_written():
+    """Releasing without a build order is honest but it is a worse document than the
+    same engine writes for a design it drew itself. Given the packet writer, a
+    curated node with no recipe gets one from its own geometry."""
+    from build_assistant.core.solver import solve
+    from build_assistant.document.curated_packet import curated_packet
+    geo = solve({"node": "floating_shelf", "overall_length": 36, "overall_depth": 10,
+                 "overall_thickness": 2.5, "finish_system": "paint_buildup"})
+    seen = {}
+
+    def author(ir, g):
+        seen["ir"], seen["node"] = ir, g.node
+        return {"steps": [{"phase": "Cut", "title": "Cut the decks", "detail": "d",
+                           "tools": [], "fasteners": [], "check": "square"}],
+                "title": "Floating shelf"}
+
+    packet = curated_packet(geo, plan_nesting(geo), author)
+    assert seen["ir"] is None and seen["node"] == "floating_shelf"
+    assert len(packet["steps"]) == 1 and packet["title"] == "Floating shelf"
+    assert packet["extra_sections"], "the derived tables are still there"
+    # a writer that fails must not take the document down with it
+    def boom(ir, g):
+        raise RuntimeError("no")
+    assert curated_packet(geo, plan_nesting(geo), boom)["steps"] == []
+    print("  [ok] a node with no recipe has its build sequence written for it")

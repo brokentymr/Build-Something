@@ -298,7 +298,8 @@ def _run_generation(pid: str) -> None:
         else:
             say("designing", "solving the geometry")
             geo = solve(answers)
-            packet = curated_packet(geo, plan_nesting(geo))
+            say("writing", "writing the build instructions")
+            packet = curated_packet(geo, plan_nesting(geo), DESIGNER.author_packet)
 
         say("drawing", "plans, sections and joint details")
         plan = plan_nesting(geo)

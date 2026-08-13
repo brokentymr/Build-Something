@@ -31,20 +31,39 @@ def _text(html: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)).strip()
 
 
-def curated_packet(geo: Geometry, plan: NestingPlan) -> dict:
+def curated_packet(geo: Geometry, plan: NestingPlan, author=None) -> dict:
     """The authored half of a curated node's packet, in the agent's schema.
 
     Node-specific writing is exactly that — specific. A node with none of its own
     still gets the sequence, the callouts and the care notes, which are derived
-    from its geometry, and the rest of the packet comes from the shared pipeline."""
+    from its geometry, and the rest of the packet comes from the shared pipeline.
+
+    ``author`` is the packet writer the generative path uses. A node with no
+    sequence recipe used to ship a packet with no build order — honest, but a
+    materially worse document than the same engine produces for a design it drew
+    itself. Given the writer, it gets one written from its own geometry."""
     if geo.node == "coffee_table":
         return _coffee_table_packet(geo, plan)
-    return {"steps": _steps(geo, plan), "care": _text(_care_prose()),
-            "extra_sections": [
-                {"title": "Tool and bit schedule", "html": _tool_table(geo)},
-                {"title": "Cure schedule", "kicker": "mostly waiting",
-                 "html": _cure_table()},
-            ]}
+    steps = _steps(geo, plan)
+    written = {}
+    if not steps and author is not None:
+        try:
+            written = author(None, geo) or {}
+        except Exception:  # noqa: BLE001 — a packet without prose still releases
+            written = {}
+        steps = written.get("steps") or []
+    packet = {"steps": steps, "care": written.get("care") or _text(_care_prose()),
+              "extra_sections": [
+                  {"title": "Tool and bit schedule", "html": _tool_table(geo)},
+                  {"title": "Cure schedule", "kicker": "mostly waiting",
+                   "html": _cure_table()},
+              ]}
+    # Anything else the writer produced — title, callouts, tolerances — belongs in
+    # the packet too; the shared pipeline reads the same keys either way.
+    for key, value in written.items():
+        if key not in ("steps", "care", "extra_sections") and value:
+            packet[key] = value
+    return packet
 
 
 def _steps(geo: Geometry, plan: NestingPlan) -> list[dict]:

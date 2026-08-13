@@ -292,7 +292,13 @@ Keep it genuinely buildable."""
 
     def author_packet(self, ir, geo) -> dict:
         """Write the editorial instruction to reference-packet depth. Numbers in
-        prose reference the computed design; the engine still owns every dimension."""
+        prose reference the computed design; the engine still owns every dimension.
+
+        ``ir`` is optional: everything this needs is on the geometry. A curated node
+        with no sequence recipe of its own gets its build order written here rather
+        than shipping a packet with no build order at all — the packet is the
+        product, and it should not be worth less for arriving down a different path.
+        """
         parts = [{"id": p.id, "name": p.name, "cut": [_fmt(p.cut_wh()[0]), _fmt(p.cut_wh()[1])],
                   "qty": p.qty, "material": p.material_id, "joint": p.joint} for p in geo.parts]
         mats = sorted({p.material_id for p in geo.parts})
@@ -312,8 +318,9 @@ Keep it genuinely buildable."""
                   "not invent dimensions beyond the parts given; you may cite spacings, grits, "
                   "cure times and tolerances a builder needs.")
         user = (
-            f"PROJECT: {ir.node_kind} — {ir.summary}\n"
-            f"MATERIALS: {mats}\nFINISH: {ir.finish_id}\n"
+            f"PROJECT: {ir.node_kind if ir else geo.node} — "
+            f"{ir.summary if ir else geo.structure.get('summary', '')}\n"
+            f"MATERIALS: {mats}\nFINISH: {ir.finish_id if ir else geo.finish_id}\n"
             f"PARTS: {json.dumps(parts)}\n"
             f"STOCK THICKNESS BY PART: {json.dumps(thick)}\n"
             f"DESIGN PARAMETERS: {json.dumps(params)}\n"

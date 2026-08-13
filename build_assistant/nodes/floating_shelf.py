@@ -38,8 +38,8 @@ JOINERY = JoineryTemplate(
     description="Shallow torsion box skinned on all faces but the wall-concealed back.",
 )
 
-RING = 2.0
 FLEX_THRESHOLD = 12.0
+MIN_CORE = 0.375        # below this the frame is a spline, not a torsion box core
 
 QUESTIONS = [
     Question(id="q_len", field="overall_length", prompt="How long a shelf?",
@@ -73,11 +73,22 @@ def build(answers: dict) -> SolveDraft:
     deck_len = A.substrate_from_finished(L, s, 2, A.ADDITIVE_OUTWARD)      # both ends exposed
     deck_depth = A.substrate_from_finished(D, s, 1, A.ADDITIVE_OUTWARD)    # front exposed, back concealed
 
-    interior = deck_len - 2 * RING
+    # The core frame stands ON EDGE between the two decks, so its width is what is
+    # left of the ordered thickness once both skins are counted. Held at a constant
+    # instead, the shelf came out the same thickness whatever was ordered: a 2-1/2in
+    # shelf and a 3in shelf both built to 2-1/4.
+    core_h = round(carcass_th - 2 * t, 4)
+    if core_h < MIN_CORE:
+        raise ValueError(
+            f"a {TH:g}in shelf leaves only {core_h:.2f}in between two {t:g}in decks — "
+            f"too little to frame. Order it at least {2 * t + MIN_CORE + 2 * s:g}in "
+            f"thick, or the decks have to come from thinner stock.")
+    # In plan each frame member occupies its own board thickness, not its height.
+    interior = deck_len - 2 * t
     rib_count = 1
-    while (interior - rib_count * RING) / (rib_count + 1) > FLEX_THRESHOLD:
+    while (interior - rib_count * t) / (rib_count + 1) > FLEX_THRESHOLD:
         rib_count += 1
-    bay = (interior - rib_count * RING) / (rib_count + 1)
+    bay = (interior - rib_count * t) / (rib_count + 1)
 
     def d_add(finished, exposed, fid):
         cut = A.substrate_from_finished(finished, s, exposed, A.ADDITIVE_OUTWARD)
@@ -94,16 +105,16 @@ def build(answers: dict) -> SolveDraft:
              d_add(L, 2, "shelf.deck.length"), d_add(D, 1, "shelf.deck.depth"),
              t, 1, "length", "as_cut", "shelf", "glue+brad to core"),
         Part("C", "front rail", CARCASS_MATERIAL,
-             d_int(deck_len, "shelf.rail.length"), d_int(RING, "shelf.ring_width"),
+             d_int(deck_len, "shelf.rail.length"), d_int(core_h, "shelf.core_height"),
              t, 1, "length", "as_cut", "shelf", "butt to end caps"),
         Part("D", "back rail", CARCASS_MATERIAL,
-             d_int(deck_len, "shelf.rail.length"), d_int(RING, "shelf.ring_width"),
+             d_int(deck_len, "shelf.rail.length"), d_int(core_h, "shelf.core_height"),
              t, 1, "length", "as_cut", "shelf", "butt to end caps"),
         Part("E", "end cap", CARCASS_MATERIAL,
-             d_int(deck_depth - 2 * RING, "shelf.endcap.length"), d_int(RING, "shelf.ring_width"),
+             d_int(deck_depth - 2 * t, "shelf.endcap.length"), d_int(core_h, "shelf.core_height"),
              t, 2, "length", "as_cut", "shelf", "butt between rails"),
         Part("F", "rib", CARCASS_MATERIAL,
-             d_int(deck_depth - 2 * RING, "shelf.rib.length"), d_int(RING, "shelf.ring_width"),
+             d_int(deck_depth - 2 * t, "shelf.rib.length"), d_int(core_h, "shelf.core_height"),
              t, rib_count, "length", "as_cut", "shelf", "butt between rails"),
     ]
 
@@ -116,7 +127,7 @@ def build(answers: dict) -> SolveDraft:
     sc("shelf.carcass_thickness", carcass_th)
     sc("shelf.deck.length", deck_len)
     sc("shelf.deck.depth", deck_depth)
-    sc("shelf.ring_width", RING)
+    sc("shelf.core_height", core_h)
     sc("shelf.rib_count", rib_count, "count")
     sc("shelf.bay_width", bay)
     sc("overall_height", TH)   # generic overall for downstream (doc/QC)
@@ -133,10 +144,10 @@ def build(answers: dict) -> SolveDraft:
         "inset_checks": [],
         "spans": [{"name": "shelf_bay", "unsupported_span": bay, "flex_threshold": FLEX_THRESHOLD}],
         "backing": [{"name": "shelf_front", "surface_width": carcass_th, "backing_width": carcass_th}],
-        "rib_left_edges": [RING + k * bay + (k - 1) * RING for k in range(1, rib_count + 1)],
+        "rib_left_edges": [t + k * bay + (k - 1) * t for k in range(1, rib_count + 1)],
         "boxes": _placement(deck_len=deck_len, deck_depth=deck_depth, t=t,
                             carcass_th=carcass_th, skin=s, L=L, D=D,
-                            ribs=[RING + k * bay + (k - 1) * RING
+                            ribs=[t + k * bay + (k - 1) * t
                                   for k in range(1, rib_count + 1)]),
         "node_kind": "floating_shelf",
         "summary": "Shallow torsion-box shelf, skinned and coated as one piece.",
@@ -176,9 +187,10 @@ def build(answers: dict) -> SolveDraft:
     ] if fin.per_face_offset > 0 else []
 
     derived = (
-        DerivedDecision("derived.ring_width", "Core ring width", f"{RING:g} in",
-                        "Perimeter frame for the shallow torsion box; carries the wall fixing load.",
-                        is_overridable=True),
+        DerivedDecision("derived.core_height", "Core frame height", f"{core_h:g} in",
+                        f"The {TH:g} in the shelf reads, less the two {t:g} in decks. "
+                        f"The perimeter frame stands on edge and carries the wall "
+                        f"fixing load.", is_overridable=True),
         DerivedDecision("derived.rib_count", "Rib count", f"{rib_count}",
                         f"Fewest ribs keeping each bay ({bay:.3g} in) under the "
                         f"{FLEX_THRESHOLD:g} in flex threshold.", is_overridable=True),
@@ -206,15 +218,16 @@ def _placement(*, deck_len, deck_depth, t, carcass_th, skin, L, D, ribs) -> list
     z0 = skin
     add("B", ox, oy, z0, deck_len, deck_depth, t)                       # bottom deck
     core_z = z0 + t
-    # The core members are strips of the same sheet laid flat, so the cavity they
-    # fill is one board thick — the same way the coffee table's core reads.
-    core_h = t
-    add("C", ox, oy, core_z, deck_len, RING, core_h)                    # front rail
-    add("D", ox, oy + deck_depth - RING, core_z, deck_len, RING, core_h)  # back rail
-    inner_d = deck_depth - 2 * RING
-    add("E", ox, oy + RING, core_z, RING, inner_d, core_h)              # end cap, left
-    add("E", ox + deck_len - RING, oy + RING, core_z, RING, inner_d, core_h)
+    # The core members stand ON EDGE between the decks. Drawn laid flat, the cavity
+    # was one board thick and the shelf built to 3t whatever thickness was ordered —
+    # a 2-1/2in shelf arriving 2-1/4. Each member is t across in plan, core_h tall.
+    core_h = carcass_th - 2 * t
+    add("C", ox, oy, core_z, deck_len, t, core_h)                       # front rail
+    add("D", ox, oy + deck_depth - t, core_z, deck_len, t, core_h)      # back rail
+    inner_d = deck_depth - 2 * t
+    add("E", ox, oy + t, core_z, t, inner_d, core_h)                    # end cap, left
+    add("E", ox + deck_len - t, oy + t, core_z, t, inner_d, core_h)
     for edge in ribs:
-        add("F", ox + edge, oy + RING, core_z, RING, inner_d, core_h)
+        add("F", ox + edge, oy + t, core_z, t, inner_d, core_h)
     add("A", ox, oy, core_z + core_h, deck_len, deck_depth, t)          # top deck
     return boxes
