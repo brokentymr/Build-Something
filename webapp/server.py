@@ -346,6 +346,19 @@ def _design_generatively(pid: str, answers: dict, say):
     res = DESIGNER.design(description, clean, photos=photos, progress=say)
     if res.geo is None:
         raise RuntimeError(res.error or "the design did not come together")
+    if not res.converged:
+        # The loop knows it failed and said so; releasing anyway is how a sofa
+        # 265 inches long reached a finished packet with every gate green. A
+        # design that did not come together is not a document.
+        raise RuntimeError(
+            "the design did not resolve — " + (res.error or "unknown")[:240])
+    # keep the model that produced the packet, so a failure is diagnosable later
+    try:
+        os.makedirs("out", exist_ok=True)
+        with open(os.path.join("out", f"project_{pid}_ir.json"), "w") as fh:
+            json.dump(res.ir.to_dict(), fh, indent=1)
+    except Exception:  # noqa: BLE001 — persistence must never fail a build
+        pass
     say("writing", "writing the build instructions")
     packet = DESIGNER.author_packet(res.ir, res.geo)
     return res.geo, packet

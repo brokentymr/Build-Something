@@ -240,3 +240,51 @@ def test_a_design_too_large_to_express_says_so():
         print("  [ok] a design that never fits says it ran out of room, not 'bad JSON'")
     else:
         raise AssertionError("expected a truncation error")
+
+
+def test_an_unresolved_design_is_not_released():
+    """A sofa 265 inches long reached a finished 19-page packet with all three
+    gates green. The loop had reported it never resolved; the worker built it
+    anyway, because it only checked that geometry existed."""
+    from webapp import server
+    from webapp.designer import DesignResult
+    store = _store()
+    server.STORE = store
+    pid = store.create_project(None, "sofa")
+    store.set_node(pid, server.GENERATIVE)
+
+    class Stub:
+        def design(self, *a, **k):
+            return DesignResult(ir=None, geo=object(), converged=False, rounds=[],
+                                error="PlacementError: asked 96in on x, lays out to 265.9in")
+
+        def author_packet(self, *a, **k):
+            raise AssertionError("must not write a packet for an unresolved design")
+
+    real, server.DESIGNER = server.DESIGNER, Stub()
+    try:
+        server._design_generatively(pid, store.answers(pid), lambda *a, **k: None)
+    except RuntimeError as exc:
+        assert "did not resolve" in str(exc), str(exc)
+        assert "265.9in" in str(exc), "the reason must travel with the refusal"
+        print("  [ok] a design that never resolved is refused, not published")
+    else:
+        raise AssertionError("expected the unresolved design to be refused")
+    finally:
+        server.DESIGNER = real
+
+
+def test_unresolved_notes_outrank_design_commentary():
+    """The unresolved notes are appended last, so an eight-note cap threw away
+    exactly the ones that mattered."""
+    from build_assistant.generative.model import DesignIR
+    from build_assistant.generative.compiler import compile_design
+    from build_assistant.generative.document import build_blocks_generic
+    from build_assistant.nesting.plan import plan_nesting
+    from tests.test_details import _CASE
+    spec = {**_CASE, "warnings": [f"design note {i}" for i in range(1, 9)]
+                                 + ["Unresolved by the design loop: parts lay out to 265in"]}
+    geo = compile_design(DesignIR.from_dict(spec))
+    html = "".join(b.html for b in build_blocks_generic(geo, plan_nesting(geo), {}))
+    assert "Unresolved by the design loop" in html, "the note that matters was dropped"
+    print("  [ok] an unresolved note survives the cap that drops commentary")

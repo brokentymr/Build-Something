@@ -158,7 +158,12 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
     # semicolons nobody reads on a shop floor.
     warnings = _split_notes(geo.structure.get("warnings", []))
     if warnings:
-        items = "".join(f"<li>{_e(_human(w, geo))}</li>" for w in warnings[:8])
+        # A note the loop could not resolve outranks any design commentary — and
+        # being appended last, it was the first thing an 8-note cap threw away.
+        unresolved = [w for w in warnings if w.lower().startswith("unresolved")]
+        rest = [w for w in warnings if w not in unresolved]
+        items = "".join(f"<li>{_e(_human(w, geo))}</li>"
+                        for w in (unresolved + rest)[:8])
         B("warn", "prose", '<div class="notice"><span class="ct">Design notes</span>'
           f'<ul class="tight">{items}</ul></div>')
 
