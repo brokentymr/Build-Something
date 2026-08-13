@@ -236,7 +236,8 @@ Keep it genuinely buildable."""
             return {"issues": [], "buildable": True}
 
     # ---------------------------------------------------------------- repair
-    def repair(self, ir: DesignIR, issues: list, error: str) -> DesignIR:
+    def repair(self, ir: DesignIR, issues: list, error: str,
+               photos: list | None = None) -> DesignIR:
         system = ("You revise a parametric build model to fix the listed problems. Keep the "
                   "same JSON shape. Change only what's needed. The engine computes numbers "
                   "from your formulas.")
@@ -245,6 +246,8 @@ Keep it genuinely buildable."""
                 f"Engine error: {error or 'none'}\n"
                 f"Issues to fix: {json.dumps(issues)}\n"
                 "Return the full corrected DesignIR JSON only.")
+        # the reference photos ride along, so a repair does not drift away from
+        # the piece the user showed us while it is fixing something else
         return DesignIR.from_dict(self._llm_json(system, user, 10000, images=photos))
 
     # ---------------------------------------------------------------- packet authoring
@@ -445,7 +448,8 @@ Keep it genuinely buildable."""
                 return DesignResult(ir, geo, True, trail)
             say("repairing", _repair_note(r, max_rounds, error, issues))
             try:
-                ir = self.repair(ir, issues or [{"what": error, "fix_hint": "make it compile"}], error)
+                ir = self.repair(ir, issues or [{"what": error, "fix_hint": "make it compile"}],
+                                 error, photos=photos)
             except Exception as exc:  # noqa: BLE001
                 trail.append({"round": r, "action": "repair_failed", "error": str(exc)})
                 break

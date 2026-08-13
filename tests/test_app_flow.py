@@ -288,3 +288,34 @@ def test_unresolved_notes_outrank_design_commentary():
     html = "".join(b.html for b in build_blocks_generic(geo, plan_nesting(geo), {}))
     assert "Unresolved by the design loop" in html, "the note that matters was dropped"
     print("  [ok] an unresolved note survives the cap that drops commentary")
+
+
+def test_the_loop_actually_reaches_a_repair_round():
+    """repair() referenced a `photos` name it did not have, so every repair raised
+    NameError and the loop silently had zero repair rounds for several runs. The
+    trail said "repair_failed: name 'photos' is not defined"; nothing else did."""
+    from webapp.designer import DesignAgent
+    from build_assistant.generative.model import DesignIR
+    from tests.test_details import _CASE
+
+    broken = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in broken["parts"]:
+        if p["id"] == "C":
+            p.update({"qty_expr": "6", "step_x": "15.65", "step_z": "0"})
+
+    agent = DesignAgent()
+    agent.synthesize = lambda *a, **k: DesignIR.from_dict(broken)
+    agent.critique = lambda *a, **k: {"issues": [{"severity": "high", "what": "x"}],
+                                      "buildable": True}
+    repairs = []
+
+    def repair(ir, issues, error, photos=None):
+        repairs.append(photos)
+        return DesignIR.from_dict(_CASE)          # the sound version
+
+    agent.repair = repair
+    res = agent.design("a case", {}, max_rounds=2, photos=["data:image/png;base64,AA"])
+    assert repairs, "the loop never reached a repair round"
+    assert repairs[0] == ["data:image/png;base64,AA"], "photos must reach the repair"
+    assert not [t for t in res.rounds if t["action"] == "repair_failed"], res.rounds
+    print("  [ok] the loop reaches repair, with the reference photos in hand")
