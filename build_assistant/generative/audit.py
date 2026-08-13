@@ -329,12 +329,26 @@ def audit_placement(geo: Geometry) -> list[str]:
                 continue
             break
 
+    # ---- 4b. the cut list buys a different number than the drawing shows ---
+    # `positions` names an origin per instance, so it can disagree with qty. Six
+    # legs bought and four placed is not a placement error the other checks can
+    # see: every leg drawn is in the right place, there are just two more on the
+    # invoice.
+    parts_by_id = {p.id: p for p in geo.parts}
+    for pid, group in by_id.items():
+        part = parts_by_id.get(pid)
+        if part and part.qty != len(group):
+            issues.append(
+                f"part {pid} ({names.get(pid, pid)}) is bought {part.qty} time(s) but "
+                f"placed {len(group)} time(s) — the cut list and the drawings disagree. "
+                f"Make qty_expr equal the number of `positions` entries, or drop "
+                f"`positions` and let the step repeat qty instances.")
+
     # ---- 5. solids drawn at the wrong stock thickness ---------------------
     # A part is cut from real stock, so one of its three box dimensions has to BE
     # that stock's thickness (or a multiple of it, for a lamination). A back panel
     # written as `box_d = rabbet_depth` is 3/4in plywood modelled 1/4in thick: the
     # cut list buys one thing and every drawing shows another.
-    parts_by_id = {p.id: p for p in geo.parts}
     for pid, group in by_id.items():
         part = parts_by_id.get(pid)
         if not part or part.thickness <= 0:
@@ -465,8 +479,12 @@ def _step_remedy(group: list, axis: str, env) -> str:
         return (f"{n} instances of a part {size:.2f}in across do not fit along {lo} "
                 f"between {first:.2f} and {limit:.1f} — spacing them to fit would "
                 f"overlap them. Either they repeat on a different axis (shelves go up "
-                f"in z, not across in x), or there are too many of them for the space.")
+                f"in z, not across in x), or they do not lie on a line at all: corner "
+                f"blocks and legs sit at corners, so drop step_* and give `positions`, "
+                f"one [x, y, z] triple per instance.")
     return (f"For {n} instances starting at box_{lo}={first:.2f}, the last one must "
             f"end at {limit:.1f}, so step_{lo} = {step:.3f} — the travel "
             f"({travel:.2f}in) divided by {n - 1} gap(s), NOT the full width of the "
-            f"piece. Set step_{lo}={step:.3f} and leave box_{lo} where it is.")
+            f"piece. Set step_{lo}={step:.3f} and leave box_{lo} where it is. If these "
+            f"are corner blocks or legs, they do not lie on a line at all — drop "
+            f"step_* and give `positions`, one [x, y, z] triple per instance.")

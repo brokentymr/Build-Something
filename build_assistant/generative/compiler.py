@@ -65,9 +65,14 @@ def compile_design(ir: DesignIR, check: bool = True) -> Geometry:
             bx, by, bz = ev(p.box_x or "0"), ev(p.box_y or "0"), ev(p.box_z or "0")
             bw, bd, bh = ev(p.box_w), ev(p.box_d), ev(p.box_h)
             sx, sy, sz = ev(p.step_x or "0"), ev(p.step_y or "0"), ev(p.step_z or "0")
-            for k in range(qty):
+            # A step marches in one direction. Four legs at four corners do not lie
+            # on a line, so those instances name their own origins.
+            origins = ([(ev(x), ev(y), ev(z)) for x, y, z in p.positions]
+                       if p.positions else
+                       [(bx + k * sx, by + k * sy, bz + k * sz) for k in range(qty)])
+            for ox, oy, oz in origins:
                 boxes.append({"id": p.id, "name": p.name,
-                              "x": bx + k * sx, "y": by + k * sy, "z": bz + k * sz,
+                              "x": ox, "y": oy, "z": oz,
                               "w": bw, "d": bd, "h": bh})
 
     # ---- params as scalars (provenance) ----

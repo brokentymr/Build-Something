@@ -104,11 +104,17 @@ class PartSpec:
     step_x: str = "0"
     step_y: str = "0"
     step_z: str = "0"
-    # Machined joinery this part RECEIVES (it is the housing member): a dado,
-    # groove or rabbet cut into it to accept another part. Drives the joint detail
-    # drawing, which cuts the real profile instead of drawing a butt contact.
+    # Instances that do not lie on a line — four legs at four corners, blocks in
+    # the corners of a plinth — cannot be expressed by a step, which marches in one
+    # direction. Give their origins outright instead, one [x, y, z] triple of
+    # expressions per instance. Present, this replaces box_x/y/z and step_*.
+    positions: list[list[str]] = field(default_factory=list)
+    # Machined joinery. Declared on the part that is MACHINED: for a dado, groove,
+    # rabbet or mortise that is the housing member; for a tenon, lap, bridle, dowel
+    # or domino it is the member that enters. Drives the joint detail drawing,
+    # which cuts the real profile instead of drawing a butt contact.
     joint_type: str = "butt"          # butt | dado | groove | rabbet | pocket | miter
-    joint_depth_expr: str = ""        # depth of the housing cut, e.g. "carcass_t/3"
+    joint_depth_expr: str = ""        # how deep that cut goes, e.g. "carcass_t/3"
 
     def has_box(self) -> bool:
         return bool(self.box_w and self.box_d and self.box_h)
@@ -186,6 +192,8 @@ class DesignIR:
                 box_d=str(p.get("box_d", "")), box_h=str(p.get("box_h", "")),
                 step_x=str(p.get("step_x", "0")), step_y=str(p.get("step_y", "0")),
                 step_z=str(p.get("step_z", "0")),
+                positions=[[str(v) for v in pos][:3]
+                           for pos in (p.get("positions") or []) if len(pos) >= 3],
                 joint_type=str(p.get("joint_type", "butt") or "butt"),
                 joint_depth_expr=str(p.get("joint_depth_expr", "")),
             ) for p in d["parts"]],

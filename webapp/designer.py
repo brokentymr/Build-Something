@@ -143,6 +143,7 @@ class DesignAgent:
             "finished_faces_len": 0-2, "finished_faces_wid": 0-2, "joint": str,
             "box_x":expr,"box_y":expr,"box_z":expr,"box_w":expr,"box_d":expr,"box_h":expr,
             "step_x":expr,"step_y":expr,"step_z":expr,
+            "positions":[[expr,expr,expr]],
             "joint_type":"butt|dado|groove|rabbet|pocket|miter|mortise|tenon|"
                          "half_lap|bridle|dowel|domino","joint_depth_expr":expr}],
  "sections": [{"tag":"A-A","axis":"x|y|z","at_expr":expr,"why":str}],
@@ -186,7 +187,11 @@ Every part must sit INSIDE the object and touch what it fastens to. step_x/y/z
 repeats a part along ONE direction only: shelves that stack repeat up z with
 step_z, and if a design has shelves in two bays those are two separate parts, not
 one part stepped sideways out of the case. Never step a part past the outside of
-the piece. Two solid parts must not occupy the same space — a shelf spans BETWEEN
+the piece. A step marches in ONE direction, so instances that do not lie on a
+line cannot use it: four legs at four corners, blocks in the corners of a plinth.
+For those, leave step_* at 0 and give `positions` — one [x, y, z] triple of
+expressions per instance, as many triples as qty. That is the only way to place a
+part at corners, and getting it wrong sends two of the four out past the end. Two solid parts must not occupy the same space — a shelf spans BETWEEN
 the sides (or into a dado by its depth), never through them.
 RULES: parts must be cuttable from the chosen material's stock. Use joinery that
 makes sense (butt/dado/pocket). Mark finished_faces_* only for faces that get the

@@ -90,6 +90,38 @@ def test_housed_joint_is_not_flagged_as_interpenetration():
     print("  [ok] joinery overlap within the cut depth is accepted")
 
 
+def test_corner_blocks_can_be_placed_at_corners():
+    """Four blocks at four corners do not lie on a line, so no step_x/step_y/step_z
+    can place them: two always march out past the end. A live sofa run burned three
+    rounds on exactly that, with the audit prescribing a step that could not exist."""
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    spec["parts"].append(
+        {"id": "BLK", "name": "corner blocks", "element": "case",
+         "material_role": "carcass", "length_expr": "3", "width_expr": "3",
+         "qty_expr": "4", "box_w": "3", "box_d": "3", "box_h": "carcass_t",
+         "positions": [["carcass_t", "0", "0"], ["width - carcass_t - 3", "0", "0"],
+                       ["carcass_t", "depth - back_t - 3", "0"],
+                       ["width - carcass_t - 3", "depth - back_t - 3", "0"]]})
+    geo = compile_design(DesignIR.from_dict(spec))
+    placed = [b for b in geo.structure["boxes"] if b["id"] == "BLK"]
+    assert len(placed) == 4, placed
+    assert len({(round(b["x"], 3), round(b["y"], 3)) for b in placed}) == 4
+    assert not [i for i in audit_placement(geo) if "BLK" in i], audit_placement(geo)
+    print("  [ok] corner blocks placed by `positions` land at four corners, clean")
+
+
+def test_bought_count_must_match_placed_count():
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    spec["parts"].append(
+        {"id": "BLK", "name": "corner blocks", "element": "case",
+         "material_role": "carcass", "length_expr": "3", "width_expr": "3",
+         "qty_expr": "6", "box_w": "3", "box_d": "3", "box_h": "carcass_t",
+         "positions": [["carcass_t", "0", "0"], ["width - carcass_t - 3", "0", "0"]]})
+    issues = audit_placement(compile_design(DesignIR.from_dict(spec)))
+    assert any("bought 6 time(s) but placed 2" in i for i in issues), issues
+    print("  [ok] a cut list buying more than the drawing places is caught")
+
+
 def test_catches_stacked_duplicate_instances():
     geo = _with({"C": {"qty_expr": "3", "step_z": "0"}})   # all copies in one place
     issues = audit_placement(geo)
