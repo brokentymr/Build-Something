@@ -296,3 +296,37 @@ def test_a_frame_built_deliberately_undersize_is_not_flagged():
     issues = audit_placement(compile_design(DesignIR.from_dict(spec)))
     assert not [i for i in issues if "than the brief" in i], issues
     print("  [ok] a frame an inch under its finished size is accepted")
+
+
+def test_a_declared_tenon_is_not_interpenetration():
+    """A sofa frame joined with mortise and tenon tripped eighteen
+    interpenetration flags. The agent had written `tenon_length` as a parameter and
+    used it in the placement — it was cutting real joints — but the joint_type
+    vocabulary was butt|dado|groove|rabbet|pocket|miter, with no way to say tenon.
+    Every joint therefore read as two parts occupying the same wood."""
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in spec["parts"]:
+        if p["id"] == "C":
+            p.update({"joint_type": "tenon", "joint_depth_expr": "1.5",
+                      "box_x": "carcass_t - 1.5",
+                      "box_w": "width - 2*carcass_t + 3"})
+    geo = compile_design(DesignIR.from_dict(spec))
+    assert geo.structure["joinery"]["C"] == {"type": "tenon", "depth": 1.5}
+    assert not [i for i in audit_placement(geo) if "pass through each other" in i]
+    print("  [ok] a declared tenon seats in its mortise instead of being a defect")
+
+
+def test_a_tenon_without_a_stated_depth_goes_through_not_a_third_in():
+    """A housing cut goes about a third into its member; a tenon goes right in."""
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in spec["parts"]:
+        if p["id"] == "C":
+            p["joint_type"] = "tenon"                 # no depth stated
+        if p["id"] == "A":
+            p["joint_type"] = "dado"
+    geo = compile_design(DesignIR.from_dict(spec))
+    tenon = geo.structure["joinery"]["C"]["depth"]
+    dado = geo.structure["joinery"]["A"]["depth"]
+    assert tenon > dado, (tenon, dado)
+    assert abs(tenon - 0.75) < 1e-6, tenon           # a full board thickness
+    print(f"  [ok] an undeclared tenon defaults through ({tenon}) not a third in ({dado:.3f})")

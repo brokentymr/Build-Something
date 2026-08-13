@@ -138,7 +138,8 @@ class DesignAgent:
             "finished_faces_len": 0-2, "finished_faces_wid": 0-2, "joint": str,
             "box_x":expr,"box_y":expr,"box_z":expr,"box_w":expr,"box_d":expr,"box_h":expr,
             "step_x":expr,"step_y":expr,"step_z":expr,
-            "joint_type":"butt|dado|groove|rabbet|pocket|miter","joint_depth_expr":expr}],
+            "joint_type":"butt|dado|groove|rabbet|pocket|miter|mortise|tenon|"
+                         "half_lap|bridle|dowel|domino","joint_depth_expr":expr}],
  "sections": [{"tag":"A-A","axis":"x|y|z","at_expr":expr,"why":str}],
  "invariants": [{"kind":"span","params":{"name":str,"unsupported_span":expr,"flex_threshold":number}},
                 {"kind":"backing","params":{"name":str,"surface_width":expr,"backing_width":expr}}],
@@ -157,6 +158,12 @@ the axis its cutting plane is normal to, where along that axis to cut, and WHY
 that reveal the joinery and internal structure — not an empty gap and not a plane
 that grazes an outside face. The engine draws them and computes every dimension;
 you are only choosing where to look. Omit sections and the engine picks for you.
+JOINERY: when two parts overlap because one is housed, tenoned, lapped or
+dowelled into the other, you MUST declare it on the housed part — joint_type plus
+joint_depth_expr for how far it goes in (a tenon's length, a lap's depth). An
+undeclared overlap reads as two parts occupying the same wood, and the audit will
+send it back. A frame joined with mortise and tenon should say so on every part
+that carries a tenon.
 PLACEMENT (required): give every part a 3D box in assembly space, inches, as
 expressions. x=left→right, y=front→back (depth), z=floor→up. box_w/box_d/box_h are
 extents along x/y/z; TWO equal the part's cut size and ONE equals the material

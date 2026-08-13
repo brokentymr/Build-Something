@@ -53,7 +53,13 @@ def compile_design(ir: DesignIR, check: bool = True) -> Geometry:
         scalars[f"part.{p.id}.width"] = ScalarField(f"part.{p.id}.width", W.as_cut)
         # machined joinery this part receives (drives the joint detail profile)
         if p.joint_type and p.joint_type != "butt":
-            depth = ev(p.joint_depth_expr) if p.joint_depth_expr else mat.actual_thickness / 3.0
+            # A housing cut goes about a third into its member; a tenon, lap or
+            # dowel goes right through into the other part, so an undeclared depth
+            # defaults to the member's own thickness rather than a third of it.
+            through = p.joint_type in ("tenon", "mortise", "half_lap", "bridle",
+                                       "dowel", "domino")
+            default = mat.actual_thickness if through else mat.actual_thickness / 3.0
+            depth = ev(p.joint_depth_expr) if p.joint_depth_expr else default
             joinery[p.id] = {"type": p.joint_type, "depth": round(max(0.0, depth), 4)}
         # 3D placement (for hero drawings): one box per instance
         if p.has_box():
