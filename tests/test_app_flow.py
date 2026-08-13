@@ -13,8 +13,13 @@ from webapp.db import Store
 
 
 def _store(tmp="out/_flowtest.db"):
-    if os.path.exists(tmp):
-        os.remove(tmp)
+    # The store runs in WAL mode, so the database is three files. Removing only
+    # the first leaves a write-ahead log from the previous run that no longer
+    # matches it, and SQLite rejects the pair with "locking protocol" — a failure
+    # that looks like a product bug and is not one.
+    for path in (tmp, tmp + "-wal", tmp + "-shm"):
+        if os.path.exists(path):
+            os.remove(path)
     return Store(tmp)
 
 

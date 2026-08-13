@@ -529,3 +529,23 @@ def test_a_narrow_backing_names_both_ways_out():
     assert "narrow the surface to 3.5" in msg, msg
     assert "does not converge" in msg
     print("  [ok] a narrow backing names both ways out, with the numbers")
+
+
+def test_board_pieces_are_labelled_with_the_same_item_numbers_as_everything_else():
+    """The cut list header says 'item nos. match the balloons'. Board layouts
+    labelled their pieces 'WC' and 'BS' instead, so a reader had to go back through
+    the cut list to find out which part a board was carrying."""
+    from build_assistant.nesting.plan import plan_nesting
+    from build_assistant.generative.document import _stock_diagram
+    from build_assistant.generative.draw import item_numbers
+    spec = {**_CASE, "materials": [{"role": "carcass", "material_id": "hardwood_4_4"},
+                                   {"role": "back", "material_id": "hardwood_4_4"}]}
+    geo = compile_design(DesignIR.from_dict(spec))
+    plan = plan_nesting(geo)
+    mid = next(iter(plan.nests))
+    svg = _stock_diagram(geo, plan.nests[mid], mid, 1).render()
+    assert "hardwood_4_4" not in svg, "raw catalog id in the drawing title"
+    assert "4/4 hardwood" in svg
+    nums = {str(v) for v in item_numbers(geo).values()}
+    assert any(f">{n}<" in svg for n in nums), "no item numbers on the board"
+    print("  [ok] board pieces carry item numbers and the material's real name")

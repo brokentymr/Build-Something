@@ -565,6 +565,14 @@ def predrill_chart(geo: Geometry) -> Canvas | None:
 # linear board layout (lumber / long stock)
 # --------------------------------------------------------------------------
 
+def _piece_label(part_id: str, labels: dict | None) -> str:
+    """The item number if the document has one, else the bare part id."""
+    base = part_id.rstrip("0123456789")
+    if labels:
+        return str(labels.get(base, labels.get(part_id, base)))
+    return base
+
+
 def _material_name(mid: str) -> str:
     """What the catalog calls it. Seven pages of a released packet were titled
     `hardwood_4_4` while its own bill of materials said "4/4 hardwood"."""
@@ -574,7 +582,7 @@ def _material_name(mid: str) -> str:
         return mid.replace("_", " ")
 
 
-def board_layout(nest, sheet_index: int) -> Canvas:
+def board_layout(nest, sheet_index: int, labels: dict | None = None) -> Canvas:
     """One board, drawn to scale, with its pieces where the nesting actually put them.
 
     This used to draw one full-length board per piece, each with its own offcut. A
@@ -608,7 +616,11 @@ def board_layout(nest, sheet_index: int) -> Canvas:
         a, run, across, wide = along_of(p)
         px, py, pw, ph = x0 + a * s, y0 + across * s, run * s, wide * s
         c.rect(px, py, pw, ph, fill="#eae4d7", sw=1.0)
-        pid = p.part_id.rstrip("0123456789")
+        # The cover, the exploded balloons and the cut list all key on item
+        # numbers, and the packet says so in as many words. A board that labels its
+        # pieces "BS" makes the reader go back through the cut list to find out
+        # which part that is.
+        pid = _piece_label(p.part_id, labels)
         if ph >= 11.0 and pw >= len(pid) * 6.0:
             c.text(px + pw / 2, py + ph / 2 + 3.5, pid, size=9, weight="bold")
         else:
@@ -635,8 +647,8 @@ def board_layout(nest, sheet_index: int) -> Canvas:
     runs = {}
     for p in pieces:
         a, run, _, wide = along_of(p)
-        runs.setdefault((p.part_id.rstrip("0123456789"), round(run, 3), round(wide, 3)), 0)
-        runs[(p.part_id.rstrip("0123456789"), round(run, 3), round(wide, 3))] += 1
+        key = (_piece_label(p.part_id, labels), round(run, 3), round(wide, 3))
+        runs[key] = runs.get(key, 0) + 1
     legend = "  ·  ".join(
         f"{pid} x{n} @ {fmt_inches(run)} x {fmt_inches(wide)}"
         for (pid, run, wide), n in runs.items())

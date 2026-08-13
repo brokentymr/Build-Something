@@ -121,9 +121,9 @@ def _stock_diagram(geo: Geometry, nest, mid: str, i: int) -> Canvas:
     mat = get_material(mid)
     long_stock = mat.category in ("lumber", "hardwood") or \
         max(nest.sheet_w, nest.sheet_h) > 3.2 * min(nest.sheet_w, nest.sheet_h)
-    if long_stock:
-        return gdetail.board_layout(nest, i)
     items = {k: str(v) for k, v in gdraw.item_numbers(geo).items()}
+    if long_stock:
+        return gdetail.board_layout(nest, i, labels=items)
     return nesting_diagram(nest, i, labels=items, material_name=mat.display_name)
 
 
