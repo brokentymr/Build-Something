@@ -94,11 +94,25 @@ def _inv_positive_lengths(geo: Geometry) -> None:
 
 def _inv_flex_span(geo: Geometry) -> None:
     """Unsupported span of any finish-bearing panel below its flex threshold."""
+    import math
     for rec in geo.structure.get("spans", []):
-        if rec["unsupported_span"] > rec["flex_threshold"] + TOL:
+        span, limit = rec["unsupported_span"], rec["flex_threshold"]
+        if span > limit + TOL:
+            # Saying only that it is too long left the loop with nowhere to go: a
+            # sofa failed twice on the same seat span. Say how many intermediate
+            # supports would carry it, and note the other possibility — that the
+            # piece already has supports and the declared span forgot them.
+            needed = max(1, math.ceil(span / limit) - 1)
+            bay = span / (needed + 1)
             raise InvariantError(
-                f"unsupported span {rec['unsupported_span']} exceeds flex threshold "
-                f"{rec['flex_threshold']} for {rec['name']}"
+                f"unsupported span {span} exceeds flex threshold {limit} for "
+                f"{rec['name']}. Carry it: {needed} intermediate support"
+                f"{'s' if needed > 1 else ''} divides the opening into "
+                f"{needed + 1} bays of {bay:.1f}in, each inside the limit — add "
+                f"them as parts and place them. If the piece ALREADY has supports "
+                f"in that opening, the invariant is measuring the whole opening "
+                f"instead of the clear distance between them: declare "
+                f"unsupported_span as the gap between adjacent supports."
             )
 
 

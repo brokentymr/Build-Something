@@ -330,3 +330,23 @@ def test_a_tenon_without_a_stated_depth_goes_through_not_a_third_in():
     assert tenon > dado, (tenon, dado)
     assert abs(tenon - 0.75) < 1e-6, tenon           # a full board thickness
     print(f"  [ok] an undeclared tenon defaults through ({tenon}) not a third in ({dado:.3f})")
+
+
+def test_an_overlong_span_says_how_to_carry_it():
+    """A sofa failed twice on the same seat span. The invariant said only that it
+    was too long, which left the repair nowhere to go."""
+    from build_assistant.core.invariants import _inv_flex_span, InvariantError
+
+    class Geo:
+        structure = {"spans": [{"name": "Seat slats", "unsupported_span": 87.0625,
+                                "flex_threshold": 36.0}]}
+    try:
+        _inv_flex_span(Geo())
+    except InvariantError as exc:
+        msg = str(exc)
+    else:
+        raise AssertionError("an 87in span over a 36in limit must fail")
+    assert "2 intermediate supports" in msg, msg
+    assert "29.0in" in msg, "the message must state the resulting bay"
+    assert "clear distance between them" in msg, "the other remedy must be named"
+    print("  [ok] an overlong span names the supports that would carry it")
