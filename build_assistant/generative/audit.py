@@ -294,8 +294,9 @@ def audit_placement(geo: Geometry) -> list[str]:
                         f"worth of wood, not a collision — these two parts belong together, so "
                         f"do NOT shorten one until it floats free. Take one of two ways out: "
                         f"(1) declare the joint — on part {arriving['id']} set "
-                        f"joint_type to mortise_tenon, tenon, dowel, domino, half_lap or "
-                        f"bridle and joint_depth_expr to at least {pen:.3f}, which tells the "
+                        f"joint_type to one of tenon, dowel, domino, half_lap or bridle "
+                        f"(exactly those words) and joint_depth_expr to at least "
+                        f"{pen:.3f}, which tells the "
                         f"cut list and the joint details to expect it; or (2) butt it — on "
                         f"part {arriving['id']}, {flush}. Flush means touching, not "
                         f"entering: do not pull it back past the face, or it will float.")

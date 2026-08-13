@@ -163,12 +163,17 @@ the axis its cutting plane is normal to, where along that axis to cut, and WHY
 that reveal the joinery and internal structure — not an empty gap and not a plane
 that grazes an outside face. The engine draws them and computes every dimension;
 you are only choosing where to look. Omit sections and the engine picks for you.
-JOINERY: when two parts overlap because one is housed, tenoned, lapped or
-dowelled into the other, you MUST declare it on the housed part — joint_type plus
-joint_depth_expr for how far it goes in (a tenon's length, a lap's depth). An
-undeclared overlap reads as two parts occupying the same wood, and the audit will
-send it back. A frame joined with mortise and tenon should say so on every part
-that carries a tenon.
+JOINERY: declare it on the part that is MACHINED, and joint_depth_expr is how far
+that cut goes. For a dado, groove or rabbet the machined part is the housing — the
+side panel carrying the shelf, the panel rabbeted for a back — and a third of the
+housing's thickness is a typical depth. For a tenon, lap, bridle, dowel or domino
+the machined part is the member that enters, and the depth is how far it goes in
+(the tenon's length). Use exactly these words: butt, dado, groove, rabbet, pocket,
+miter, mortise, tenon, half_lap, bridle, dowel, domino. Leave it "butt" for parts
+that simply meet face to face. Two things depend on getting this right: the engine
+draws the real machined profile in the joint details, and an overlap you have not
+declared reads to the audit as two parts occupying the same wood. A frame joined
+with mortise and tenon must say so on every rail that carries a tenon.
 PLACEMENT (required): give every part a 3D box in assembly space, inches, as
 expressions. x=left→right, y=front→back (depth), z=floor→up. box_w/box_d/box_h are
 extents along x/y/z; TWO equal the part's cut size and ONE equals the material
@@ -183,11 +188,6 @@ step_z, and if a design has shelves in two bays those are two separate parts, no
 one part stepped sideways out of the case. Never step a part past the outside of
 the piece. Two solid parts must not occupy the same space — a shelf spans BETWEEN
 the sides (or into a dado by its depth), never through them.
-JOINERY: set joint_type on the member that RECEIVES a machined cut (the housing) —
-the side panel that carries a dado for a shelf, the panel with a rabbet for a
-back. Give joint_depth_expr for that cut (a third of the housing thickness is
-typical). Leave joint_type "butt" for parts that simply butt together. The engine
-draws the real machined profile in the joint details from these, so be accurate.
 RULES: parts must be cuttable from the chosen material's stock. Use joinery that
 makes sense (butt/dado/pocket). Mark finished_faces_* only for faces that get the
 finish. For any unsupported shelf/panel add a span invariant whose flex_threshold

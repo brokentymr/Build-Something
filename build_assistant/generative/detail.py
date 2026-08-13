@@ -21,6 +21,7 @@ from ..catalog.materials import get_material
 from ..catalog.fasteners import get_fastener, all_fasteners
 from ..core.model import Geometry
 from ..drawing.primitives import Canvas, fmt_inches
+from .model import joint_roles
 
 W = 520.0
 MARGIN = 60.0
@@ -193,15 +194,16 @@ def cross_section(geo: Geometry, axis: str = "x", cut: float | None = None,
             ha_id, hb_id = ct["a"]["id"], ct["b"]["id"]
             if ha_id not in hit_ids or hb_id not in hit_ids:
                 continue
-            hid = ha_id if ha_id in joinery else (hb_id if hb_id in joinery else None)
+            hid, housed_id = joint_roles(joinery, ha_id, hb_id)
             if not hid:
                 continue
-            housed = ct["b"] if hid == ha_id else ct["a"]
-            seats.setdefault(housed["id"], []).append(
-                {"at": ct["at"], "axis": ct["axis"], "depth": joinery[hid]["depth"]})
+            seats.setdefault(housed_id, []).append(
+                {"at": ct["at"], "axis": ct["axis"],
+                 "depth": joinery[ha_id if ha_id in joinery else hb_id]["depth"]})
 
     seen = {}
-    order = sorted(hit, key=lambda b: (b["id"] not in joinery, b[vl], b[hl]))
+    # housing members draw first so the member seated into them sits over the top
+    order = sorted(hit, key=lambda b: (b["id"] in seats, b[vl], b[hl]))
     for b in order:
         lo_h, hi_h = b[hl], b[hl] + b[hk]
         lo_v, hi_v = b[vl], b[vl] + b[vk]
@@ -392,10 +394,9 @@ def joint_detail(geo: Geometry, contact: dict, tag: str) -> Canvas | None:
     # rabbet), cut the real profile instead of drawing a butt contact. The housed
     # member is shown seated in it by the housing depth.
     joinery = geo.structure.get("joinery", {})
-    housing_id = next((box["id"] for box in (a, b) if box["id"] in joinery), None)
-    housing = joinery.get(housing_id) if housing_id else None
-    housed_id = next((box["id"] for box in (a, b) if box["id"] != housing_id), None) \
-        if housing else None
+    housing_id, housed_id = joint_roles(joinery, a["id"], b["id"])
+    declarer = a["id"] if a["id"] in joinery else b["id"] if b["id"] in joinery else None
+    housing = joinery.get(declarer) if housing_id else None
     dado_w = 0.0
     if housing:
         other = a if a["id"] == housed_id else b

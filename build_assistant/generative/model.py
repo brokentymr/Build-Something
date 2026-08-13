@@ -16,6 +16,32 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 
+# A joint is declared on the part that is MACHINED. For a dado, groove, rabbet or
+# mortise that part houses the other; for a tenon, lap, bridle, dowel or domino it
+# is the member that enters. Both families cut as deep as the joint is long, which
+# is what THROUGH_JOINTS is for — a housing cut, by contrast, goes about a third
+# into its member.
+ENTERING_JOINTS = ("tenon", "half_lap", "bridle", "dowel", "domino")
+THROUGH_JOINTS = ENTERING_JOINTS + ("mortise",)
+
+
+def joint_roles(joinery: dict, id_a: str, id_b: str):
+    """``(housing_id, housed_id)`` for a contact, or ``(None, None)``.
+
+    Reading the declaring part as the housing in every case draws the mortise on
+    the wrong stick: a rail that says "tenon" is the one going in, not the one
+    being cut into.
+    """
+    for declarer, other in ((id_a, id_b), (id_b, id_a)):
+        spec = joinery.get(declarer)
+        if not spec:
+            continue
+        if spec.get("type") in ENTERING_JOINTS:
+            return other, declarer
+        return declarer, other
+    return None, None
+
+
 @dataclass
 class Param:
     id: str                       # symbol usable in expressions, e.g. "width"
