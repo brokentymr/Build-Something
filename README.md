@@ -22,10 +22,35 @@ These are enforced structurally, not by convention — see "Where each law lives
 
 ## Quick start
 
+Run the app — this is the product:
+
 ```bash
-python run_tests.py          # 37 tests, stdlib only (no pytest needed)
-python build.py              # solve -> nest -> draw -> document -> gates -> out/coffee_table.pdf
-python build.py --no-render  # deterministic core only (no Chromium)
+export ANTHROPIC_API_KEY=...              # required for the design agent
+python3 -m webapp.server --port 8079      # then open http://localhost:8079
+```
+
+The app takes a description ("a low wide sofa frame, 84 inches, to upholster"),
+asks what it needs to know three questions at a time, designs the piece, checks
+its own work, and releases a printable build packet. A design it has not seen
+before takes a few minutes of design rounds; a curated node takes seconds.
+
+Without a key it still runs, on heuristics — the badge in the corner says which.
+
+The engine on its own, with no server and no model:
+
+```bash
+python3 run_tests.py         # full suite, stdlib only (no pytest needed)
+python3 build.py             # solve -> nest -> draw -> document -> gates -> out/coffee_table.pdf
+python3 build.py --no-render # deterministic core only (no Chromium)
+```
+
+And the instruments that measure whether the *product* works, by driving the
+live app over HTTP — see `harness/README.md`:
+
+```bash
+sh harness/serve.sh out/server.log   # restart, and print the build actually served
+python3 harness/corpus.py            # twelve real descriptions, end to end
+python3 harness/sofa.py              # one deliberately hard case
 ```
 
 The reference fixture (`fixtures/coffee_table_reference.json`) is the golden test:
@@ -53,6 +78,8 @@ Built in the brief's phase order; phases 1–6 contain **no LLM calls at all**.
 | 8 | `elicitation/` | Strict JSON LLM boundary (injectable client); intake with mandatory disambiguation; two-judge completeness gate |
 | 9 | `persistence/` | Append-only answer sets; checkpoints; revisions (full re-solve + diff + changelog) |
 | 10 | `build_mode/` | One step at a time with timestamped sign-offs; structural mode; vision flag generator |
+| — | `webapp/` | The app: intake, question turns, the design agent's synthesize/critique/repair loop, job worker, release |
+| — | `generative/` | Designs with no template: the parametric IR the model authors, its whitelisted evaluator, the compiler, and the deterministic placement and prose audits that feed repair |
 
 ### The allowance layer (the highest-value abstraction)
 
