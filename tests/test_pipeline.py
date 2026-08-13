@@ -210,3 +210,30 @@ def test_a_failed_design_says_something_a_person_can_act_on():
     odd = _plain_failure("sqlite3.OperationalError: database is locked")
     assert "database is locked" in odd, odd
     print("  [ok] a failed design is explained in words, with the move worth making")
+
+
+def test_coming_back_mid_design_attaches_instead_of_starting_a_second_one():
+    """The screen says 'you can leave and come back; it keeps going'. Coming back
+    re-enters the generate endpoint, and a design takes twenty minutes — starting a
+    second one over the top of the first wastes both and reports whichever finishes
+    last."""
+    import webapp.server as S
+
+    class FakeStore:
+        def __init__(self): self.started = 0; self.state = {"status": "running"}
+        def job(self, pid): return self.state
+        def start_job(self, pid, n): self.started += 1
+        def set_status(self, pid, s): pass
+        def answers(self, pid): return {"node": S.GENERATIVE}
+
+    store, real = FakeStore(), S.STORE
+    S.STORE = store
+    try:
+        res = S.do_generate("p1")
+        assert res.get("attached") and store.started == 0, res
+        store.state = {"status": "failed"}          # a finished job may be re-run
+        S.do_generate("p1")
+        assert store.started == 1
+    finally:
+        S.STORE = real
+    print("  [ok] returning to a running design attaches to it, does not restart it")

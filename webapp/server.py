@@ -273,6 +273,12 @@ def do_generate(pid: str) -> dict:
             missing = sorted({m for v in audit for m in v["missing"]})
             return {"released": False, "audit": audit, "missing": missing,
                     "message": "Completeness audit found gaps — a few more answers needed."}
+    # Someone who leaves mid-design and comes back re-enters this endpoint. A
+    # design takes twenty minutes; starting a second one over the top of the first
+    # wastes both and reports whichever finishes last. Attach to the running job.
+    running = STORE.job(pid)
+    if running and running.get("status") == "running":
+        return {"started": True, "attached": True, "job": running}
     STORE.set_status(pid, "generating")
     STORE.start_job(pid, len(PLAN_PHASES))
     threading.Thread(target=_run_generation, args=(pid,), daemon=True).start()

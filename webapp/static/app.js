@@ -140,6 +140,9 @@ async function openProject(pid){
   AI_MODE = st.ai_mode; $('#aimode').textContent='AI · '+st.ai_mode;
   const route = () => {
     if(st.status==='released' || st.document) return resultScreen(pid, st);
+    // "You can leave and come back; it keeps going" — so coming back has to land
+    // on the design in progress, not on the questions that started it.
+    if(st.status==='generating') return generate(pid);
     if(st.status==='photos') return photosScreen(pid, st);
     return configureScreen(pid, st);
   };
