@@ -73,6 +73,10 @@ textarea.free{width:100%;min-height:110px;border:1.5px solid var(--line);border-
   margin-bottom:8px}
 .known .row{display:flex;justify-content:space-between;font-size:14px;padding:3px 0}
 .known .row .v{font-weight:700}
+.known .row{align-items:center;gap:12px}
+.numedit{font:inherit;font-weight:700;text-align:right;width:88px;padding:5px 8px;
+  border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink)}
+.numedit:focus{outline:2px solid var(--accent);outline-offset:1px}
 
 .photogrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}
 .photogrid .ph{aspect-ratio:1;border-radius:12px;background-size:cover;background-position:center;

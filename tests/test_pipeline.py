@@ -237,3 +237,20 @@ def test_coming_back_mid_design_attaches_instead_of_starting_a_second_one():
     finally:
         S.STORE = real
     print("  [ok] returning to a running design attaches to it, does not restart it")
+
+
+def test_a_released_project_can_have_a_number_changed_and_be_rebuilt():
+    """A released packet used to be final: someone who wanted the 84in sofa at 90
+    had to start a new project and answer everything again. The answer store is
+    versioned and append-only, so this was always supported underneath — it just
+    was not reachable, because every answer was shown read-only."""
+    import webapp.server as S
+    known = S._known_summary(None, {"node": "__designed__", "overall_width": 84.0,
+                                    "wood_species": "poplar"})
+    by = {k["label"]: k for k in known}
+    assert "Node" not in by
+    width = by["Width"]
+    assert width["numeric"] and width["field"] == "overall_width", width
+    # a choice is not offered as a free-text number to retype
+    assert not by["Wood Species"]["numeric"]
+    print("  [ok] answers carry their field and type, so a number can be changed")

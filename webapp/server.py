@@ -161,12 +161,20 @@ _LABELS = {
 
 
 def _known_summary(node: str, answers: dict) -> list[dict]:
+    """What has been decided so far — carrying the field id, so it can be changed.
+
+    Every answer was shown read-only, which meant a released packet was final:
+    someone who wanted the 84in sofa at 90 had to start a new project and answer
+    everything again. The answer store is versioned and append-only, so changing
+    one number and rebuilding was always supported underneath."""
     out = []
     for k, v in answers.items():
         if k == "node":
             continue
         label = _LABELS.get(k, k.replace("_", " ").title())
-        out.append({"label": label, "value": str(v)})
+        numeric = isinstance(v, (int, float)) and not isinstance(v, bool)
+        out.append({"field": k, "label": label, "value": str(v),
+                    "numeric": numeric})
     return out
 
 

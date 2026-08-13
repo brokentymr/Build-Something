@@ -190,9 +190,26 @@ function configureScreen(pid, st){
       ${st.known.map(k=>`<div class="row"><span>${esc(k.label)}</span><span class="v">${esc(k.value)}</span></div>`).join('')}</div>` : '';
 
   if(!turn){
-    screen.innerHTML = `<p class="eyebrow">${esc(st.node_display)}</p><h1 class="hero" style="font-size:23px">Ready to generate</h1>
-      ${knownHtml}<button class="btn go" id="gen">Generate build package</button>`;
-    $('#gen').onclick=()=>generate(pid);
+    // Numbers are editable here: changing one and rebuilding is the whole of
+    // "make it 90 inches instead", and the answer store has always been versioned.
+    const editable = (st.known||[]).filter(k=>k.numeric);
+    screen.innerHTML = `<p class="eyebrow">${esc(st.node_display)}</p>
+      <h1 class="hero" style="font-size:23px">${st.document?'Change something and rebuild':'Ready to generate'}</h1>
+      ${editable.length?`<div class="known"><div class="h">Dimensions — edit any of these</div>
+        ${editable.map(k=>`<div class="row"><span>${esc(k.label)}</span>
+          <input class="numedit" data-f="${esc(k.field)}" value="${esc(k.value)}" inputmode="decimal"></div>`).join('')}</div>`:knownHtml}
+      ${(st.known||[]).some(k=>!k.numeric)?`<div class="known"><div class="h">Other choices</div>
+        ${st.known.filter(k=>!k.numeric).map(k=>`<div class="row"><span>${esc(k.label)}</span><span class="v">${esc(k.value)}</span></div>`).join('')}</div>`:''}
+      <button class="btn go" id="gen">${st.document?'Rebuild the package':'Generate build package'}</button>`;
+    $('#gen').onclick=async()=>{
+      const changed={};
+      screen.querySelectorAll('.numedit').forEach(el=>{
+        const was=(st.known.find(k=>k.field===el.dataset.f)||{}).value;
+        if(el.value.trim() && el.value.trim()!==was) changed[el.dataset.f]=parseFloat(el.value);
+      });
+      if(Object.keys(changed).length) await api('/api/projects/'+pid+'/answer','POST',{answers:changed});
+      generate(pid);
+    };
     return;
   }
   const qHtml = turn.questions.map(q=>{
@@ -342,7 +359,10 @@ function resultScreen(pid, st, res){
     <a class="pdfwrap coverwrap" href="${doc.pdf_url}" target="_blank">
       <img src="/api/projects/${pid}/cover.png" alt="document cover"></a>
     <a class="btn" href="${doc.pdf_url}" download>Download PDF</a>
+    <button class="btn alt" id="revise">Change something and rebuild</button>
     <button class="btn alt" id="home">Back to start</button>`;
+  $('#revise').onclick=async()=>{ const fresh=await api('/api/projects/'+pid);
+    stack[stack.length-1]=()=>configureScreen(pid,fresh); render(); };
   $('#home').onclick=()=>{ stack=[landing]; render(); };
 }
 
