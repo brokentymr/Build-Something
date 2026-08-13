@@ -29,6 +29,10 @@ python3 harness/corpus.py
 This is the reliability measure. A change to the design loop, the audit or the
 prompts is not evaluated until this has run.
 
+It ends with a `CORPUS COMPLETE — n/12 released` line. Wait on that, not on the
+process table: `pgrep -f corpus.py` run from a shell whose own command line
+contains `corpus.py` matches itself and waits forever.
+
 ## sofa.py
 
 One deliberately hard case: an upholstered frame in the style of an RH Mara,

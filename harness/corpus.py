@@ -144,6 +144,11 @@ def main():
         if not r["released"]:
             print(f"  {r['desc'][:46]:48s} {r['reason'][:110]}")
     json.dump(results, open("out/_corpus_results.json", "w"), indent=1)
+    # A finish line in the output, so waiting on this run is a grep and not a
+    # guess about process tables. `pgrep -f corpus.py` in a shell whose own
+    # command line contains "corpus.py" matches itself and waits forever — which
+    # is exactly how one verification run sat idle for twenty minutes.
+    print(f"\nCORPUS COMPLETE — {len(released)}/{len(results)} released", flush=True)
 
 
 if __name__ == "__main__":
