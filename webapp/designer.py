@@ -183,7 +183,16 @@ For qty>1 parts that repeat (e.g. shelves up the height), set step_x/y/z to the
 spacing between instances. Placement must form the actual assembled object — the
 engine draws plan, elevations and an exploded view from these boxes, so get them
 right (a side panel is thin in x, a shelf thin in z, a back thin in y).
-Every part must sit INSIDE the object and touch what it fastens to. step_x/y/z
+Every part must sit INSIDE the object and touch what it fastens to. Write the
+coordinates so that contact is ARITHMETIC, not luck: a part's box_z is the top of
+whatever it stands on (`plinth_h + deck_t`), its box_x is the inside face of the
+part beside it (`side_t`), and its box_w is the gap it spans (`width - 2*side_t`).
+A literal number in a coordinate is a part that happens to be in the right place
+today; an expression in the parts around it is a part that stays there when a
+dimension changes. Place one part on the ground and reference every other part to
+one already placed. The single most common defect in first drafts is a part
+touching nothing — it is nearly always a coordinate written as a bare number that
+no longer meets its neighbour. step_x/y/z
 repeats a part along ONE direction only: shelves that stack repeat up z with
 step_z, and if a design has shelves in two bays those are two separate parts, not
 one part stepped sideways out of the case. Never step a part past the outside of
