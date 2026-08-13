@@ -175,6 +175,31 @@ def _flush_remedy(b, boxes, names):
             f"overlap — do not push past that face, and do not leave a gap short of it.")
 
 
+# Words that name hardware rather than a piece of wood. "Dowel" and "biscuit" are
+# deliberately absent: they name real joinery members the engine does place.
+_HARDWARE = ("screw", "nail", "brad", "staple", "bolt", "washer", "lag ",
+             "hinge", "bracket", "anchor", "t-nut", "threaded insert")
+
+
+def _hardware_parts(geo: Geometry, boxes) -> list[tuple[str, int]]:
+    """Parts that are really fasteners: named as hardware and too small to be wood.
+
+    Both tests have to hold. "Screw block" is a wooden part and stays one; a 1-1/4in
+    solid named "Pocket screws" is a box of screws that wandered into the cut list.
+    """
+    counts: dict[str, int] = {}
+    sizes: dict[str, float] = {}
+    for b in boxes:
+        counts[b["id"]] = counts.get(b["id"], 0) + 1
+        sizes[b["id"]] = max(sizes.get(b["id"], 0.0), max(b["w"], b["d"], b["h"]))
+    out = []
+    for p in geo.parts:
+        name = p.name.lower()
+        if any(w in name for w in _HARDWARE) and sizes.get(p.id, 99.0) <= 6.0:
+            out.append((p.id, counts.get(p.id, p.qty)))
+    return out
+
+
 def envelope(geo: Geometry):
     """The object's own declared outer box, from its elements."""
     els = geo.elements
@@ -195,6 +220,23 @@ def audit_placement(geo: Geometry) -> list[str]:
     issues: list[str] = []
     names = {p.id: p.name for p in geo.parts}
     joinery = geo.structure.get("joinery", {})
+
+    # ---- 0. hardware modelled as joinery ----------------------------------
+    # A live run put "Pocket screws 1-1/4 inch" in the cut list with a 3D box and
+    # a quantity of 48, and the placement checks below did what they are for: 48
+    # instances touching nothing. Chasing that is chasing the wrong thing — the
+    # screws are not badly placed, they are not parts. Say so before the geometry
+    # checks run, so the repair fixes the category rather than the coordinates.
+    hardware = _hardware_parts(geo, boxes)
+    if hardware:
+        for pid, n in hardware:
+            issues.append(
+                f"part {pid} ({names.get(pid, pid)}) is hardware, not a part: it "
+                f"belongs in `fasteners`, not in `parts`. Remove it from the parts "
+                f"list — with its box and its qty of {n} — and add it to fasteners "
+                f"as {{fastener_id, seam_expr, spacing}}. The cut list is wood to "
+                f"cut; screws are bought by the box and drawn on the joint details.")
+        return issues
 
     # ---- 1. parts escaping the declared envelope --------------------------
     env = envelope(geo)

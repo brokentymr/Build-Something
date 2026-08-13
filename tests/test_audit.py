@@ -549,3 +549,36 @@ def test_board_pieces_are_labelled_with_the_same_item_numbers_as_everything_else
     nums = {str(v) for v in item_numbers(geo).values()}
     assert any(f">{n}<" in svg for n in nums), "no item numbers on the board"
     print("  [ok] board pieces carry item numbers and the material's real name")
+
+
+def test_screws_in_the_cut_list_are_named_as_hardware_not_placed():
+    """A live run put 'Pocket screws 1-1/4 inch' in the parts list with a 3D box and
+    a qty of 48. The placement checks then did what they are for — 48 instances
+    touching nothing — and the repair spent rounds trying to seat screws against
+    something. They are not badly placed; they are not parts."""
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    spec["parts"].append(
+        {"id": "SCR", "name": "Pocket screws 1-1/4 inch", "element": "case",
+         "material_role": "carcass", "length_expr": "1.25", "width_expr": "0.2",
+         "qty_expr": "48", "box_x": "40", "box_y": "40", "box_z": "60",
+         "box_w": "1.25", "box_d": "0.2", "box_h": "0.2", "step_x": "0.3"})
+    issues = audit_placement(compile_design(DesignIR.from_dict(spec)))
+    assert any("hardware, not a part" in i for i in issues), issues
+    assert any("`fasteners`" in i for i in issues), issues
+    # and it is said instead of the geometry complaints, not alongside them
+    assert not any("floats free" in i for i in issues), issues
+    print("  [ok] hardware in the cut list is named as hardware, before the geometry")
+
+
+def test_a_wooden_part_named_like_hardware_is_still_a_part():
+    """'Screw block' is a real wooden part. Both tests have to hold: named as
+    hardware AND too small to be wood."""
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    spec["parts"].append(
+        {"id": "SB", "name": "Screw block cleat", "element": "case",
+         "material_role": "carcass", "length_expr": "10", "width_expr": "3",
+         "qty_expr": "1", "box_x": "carcass_t", "box_y": "0", "box_z": "0.75",
+         "box_w": "10", "box_d": "3", "box_h": "carcass_t"})
+    issues = audit_placement(compile_design(DesignIR.from_dict(spec)))
+    assert not any("hardware, not a part" in i for i in issues), issues
+    print("  [ok] a wooden part named like hardware is left alone")
