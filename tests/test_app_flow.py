@@ -199,3 +199,44 @@ def test_a_connection_brings_its_own_schema():
     assert "error" not in result, result["error"]
     assert result.get("pid")
     print("  [ok] a new connection creates the schema it needs")
+
+
+def test_a_reply_cut_off_at_the_ceiling_gets_more_room():
+    """A sofa frame is a bigger model than a bookshelf, and synthesis ran out of
+    room mid-part. It reported "did not return valid JSON", so the retry asked for
+    valid JSON when what it needed was a larger budget."""
+    from webapp.designer import DesignAgent
+    agent = DesignAgent()
+    calls = []
+
+    def fake_llm(system, user, max_tokens=3000, images=None):
+        calls.append(max_tokens)
+        if len(calls) == 1:                      # truncated mid-object
+            agent.last_stop_reason = "max_tokens"
+            return '{"name": "sofa", "parts": [{"id": "A"'
+        agent.last_stop_reason = "end_turn"
+        return '{"name": "sofa", "parts": []}'
+
+    agent._llm = fake_llm
+    out = agent._llm_json("sys", "user", 6000)
+    assert out["name"] == "sofa"
+    assert calls[1] > calls[0], f"the retry must get more room: {calls}"
+    print(f"  [ok] a truncated reply is retried with more room ({calls[0]} -> {calls[1]})")
+
+
+def test_a_design_too_large_to_express_says_so():
+    from webapp.designer import DesignAgent
+    agent = DesignAgent()
+
+    def always_truncated(system, user, max_tokens=3000, images=None):
+        agent.last_stop_reason = "max_tokens"
+        return '{"name": "runaway"'
+
+    agent._llm = always_truncated
+    try:
+        agent._llm_json("sys", "user", 6000)
+    except RuntimeError as exc:
+        assert "ran past" in str(exc), str(exc)
+        print("  [ok] a design that never fits says it ran out of room, not 'bad JSON'")
+    else:
+        raise AssertionError("expected a truncation error")

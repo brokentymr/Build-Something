@@ -31,6 +31,9 @@ from build_assistant.generative.evaluator import ExprError
 
 MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
 MAX_ROUNDS = int(os.environ.get("DESIGN_MAX_ROUNDS", "5"))
+#: Hard ceiling on a single reply, so a runaway design fails loudly
+#: instead of doubling forever.
+MAX_TOKENS_CEILING = int(os.environ.get("DESIGN_MAX_TOKENS", "24000"))
 
 
 def _fmt(v: float) -> str:
@@ -52,6 +55,7 @@ class DesignResult:
 class DesignAgent:
     def __init__(self):
         self.key = os.environ.get("ANTHROPIC_API_KEY")
+        self.last_stop_reason = ""
         self.base = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/")
 
     @property
@@ -72,15 +76,28 @@ class DesignAgent:
         req = urllib.request.Request(self.base + "/v1/messages", data=body, method="POST",
             headers={"content-type": "application/json", "x-api-key": self.key,
                      "anthropic-version": "2023-06-01"})
-        with urllib.request.urlopen(req, timeout=90) as r:
+        with urllib.request.urlopen(req, timeout=120) as r:
             data = json.loads(r.read())
+        # Why the model stopped matters. A reply cut off at the token ceiling is
+        # not malformed JSON, and treating it as such sent the retry to ask for
+        # valid JSON when what it needed was more room.
+        self.last_stop_reason = data.get("stop_reason", "")
         return "".join(b.get("text", "") for b in data.get("content", []))
 
     def _llm_json(self, system: str, user: str, max_tokens: int = 3000, tries: int = 2,
                   images: list | None = None) -> dict:
-        last = ""
-        for _ in range(tries):
-            raw = self._llm(system, user + last, max_tokens, images=images)
+        last, budget, truncated = "", max_tokens, False
+        for _ in range(tries + 1):
+            raw = self._llm(system, user + last, budget, images=images)
+            truncated = self.last_stop_reason == "max_tokens"
+            if truncated:
+                # A sofa frame is a bigger model than a bookshelf: more rails,
+                # stiles and blocks, and the reply ran out of room mid-part. Give
+                # it more rather than asking again for the same size.
+                budget = min(int(budget * 2), MAX_TOKENS_CEILING)
+                last = ""
+                if budget > max_tokens:
+                    continue
             a, b = raw.find("{"), raw.rfind("}")
             if a >= 0 and b > a:
                 try:
@@ -89,6 +106,10 @@ class DesignAgent:
                     last = f"\n\nYour previous reply was not valid JSON ({e}). Return ONLY valid JSON."
             else:
                 last = "\n\nReturn ONLY a JSON object."
+        if truncated:
+            raise RuntimeError(
+                f"the design ran past {budget} tokens — it is larger than this "
+                f"step can express in one reply")
         raise RuntimeError("model did not return valid JSON")
 
     # ---------------------------------------------------------------- catalog context
@@ -179,7 +200,7 @@ Keep it genuinely buildable."""
                 + "Author the full DesignIR. Use the known parameters; add sensible "
                 "defaults (source='default') for any other dimension the build needs, "
                 "each with a short basis. Return ONLY the JSON.")
-        return DesignIR.from_dict(self._llm_json(system, user, 6000, images=photos))
+        return DesignIR.from_dict(self._llm_json(system, user, 10000, images=photos))
 
     # ---------------------------------------------------------------- critique
     def critique(self, ir: DesignIR, geo, error: str) -> dict:
@@ -217,7 +238,7 @@ Keep it genuinely buildable."""
                 f"Engine error: {error or 'none'}\n"
                 f"Issues to fix: {json.dumps(issues)}\n"
                 "Return the full corrected DesignIR JSON only.")
-        return DesignIR.from_dict(self._llm_json(system, user, 6000, images=photos))
+        return DesignIR.from_dict(self._llm_json(system, user, 10000, images=photos))
 
     # ---------------------------------------------------------------- packet authoring
     _PACKET_SCHEMA = {
