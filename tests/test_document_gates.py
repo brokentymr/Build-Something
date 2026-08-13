@@ -71,3 +71,33 @@ def test_fixture_numbers_in_document():
                 '35-1/4', '11-3/4', '33-3/4', '88.6']:
         assert tok in html, f"fixture value {tok} missing from document"
     print("  [ok] every key fixture number appears in the document")
+
+
+def test_a_long_cut_list_does_not_block_its_own_release():
+    """A table is one block and a block cannot split across pages, so a design with
+    enough parts could not be laid out at all. The sofa's 26 parts filled three
+    quarters of a page; at 56 the cut list overflowed by 567px, failed the overflow
+    gate, and the user would have been told their design did not come together —
+    for a typographic reason."""
+    import copy
+    from build_assistant.generative.model import DesignIR
+    from build_assistant.generative.compiler import compile_design
+    from build_assistant.nesting.plan import plan_nesting
+    from build_assistant.generative.document import build_generic_document
+    from build_assistant.gates.gates import gate_2_overflow
+    from tests.test_details import _CASE
+
+    spec = copy.deepcopy(_CASE)
+    base = dict(spec["parts"][2])
+    for i in range(60):
+        p = dict(base); p["id"] = f"X{i}"; p["name"] = f"Filler shelf {i}"
+        p["qty_expr"] = "1"; p["box_z"] = str(12 + i * 0.01)
+        spec["parts"].append(p)
+    geo = compile_design(DesignIR.from_dict(spec), check=False)
+    doc = build_generic_document(geo, plan_nesting(geo), {"steps": []},
+                                 out_name="_longcut_probe")
+    assert geo.part_type_count() > 50, geo.part_type_count()
+    g = gate_2_overflow(doc["html_path"])
+    assert g.passed, (g.detail, g.violations)
+    print(f"  [ok] {geo.part_type_count()} part types lay out over "
+          f"{doc['page_count']} pages without overflowing")

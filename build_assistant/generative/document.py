@@ -48,6 +48,12 @@ def _split_sentences(text: str) -> list[str]:
     return [p.strip().rstrip(".") for p in parts if len(p.strip()) > 3]
 
 
+def _chunks(rows: list, n: int):
+    """Rows in page-sized groups, so a long table is several flowable blocks."""
+    for i in range(0, len(rows), n):
+        yield rows[i:i + n]
+
+
 def _human(text: str, geo: Geometry) -> str:
     """Replace internal part ids in agent prose with the part's real name.
 
@@ -245,7 +251,14 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
                     f'{fmt_inches(p.cut_wh()[1], 32)}</span>',
                     str(p.qty), _e(get_material(p.material_id).display_name),
                     f'<span class="agent-note">{_e(note)}</span>'])
-    B("cut", "table", _table(["Item", "Part", "As-cut", "Qty", "Material", "Joint"], cut))
+    # A table is one block and a block cannot be split across pages, so a long
+    # enough cut list could not be laid out at all: 26 parts filled three quarters
+    # of a page, and a design with fifty would have overflowed a page on its own,
+    # failed the overflow gate and blocked its own release for a layout reason.
+    # Chunked, it flows.
+    for n, chunk in enumerate(_chunks(cut, 24)):
+        B(f"cut{n}", "table",
+          _table(["Item", "Part", "As-cut", "Qty", "Material", "Joint"], chunk))
 
     # ---------- SHEET LAYOUTS ----------
     B("h_sheet", "header", _h("Stock layouts, yield and waste"))
