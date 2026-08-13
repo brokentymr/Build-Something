@@ -132,8 +132,27 @@ def compile_design(ir: DesignIR, check: bool = True) -> Geometry:
             scalars["overall_height"] = ScalarField("overall_height", round(oh, 4))
 
     # ---- derived decisions ----
-    derived = tuple(DerivedDecision(f"derived.{i}", d.label, d.value, d.basis, d.is_overridable)
-                    for i, d in enumerate(ir.derived))
+    # "Derived, not asked" tells someone what the app decided on their behalf, so
+    # it has to be a number. The agent writes these as formulas — the released sofa
+    # showed a user "Interior Seat Width: overall_width - 2*arm_width" — and a
+    # formula in symbol names is engine-speak, the same defect as a raw part id in
+    # prose. Evaluate it here: the model still never emits the number, and the
+    # expression it did write is kept as the basis so the value stays traceable.
+    def _derived_value(d):
+        try:
+            v = ev(d.value)
+        except Exception:  # noqa: BLE001 — plain prose values pass through unchanged
+            return d.value, d.basis
+        text = f"{v:g} in" if abs(v) >= 0.01 else f"{v:g}"
+        basis = d.basis if d.value in d.basis else f"{d.basis} ({d.value})".strip()
+        return text, basis
+
+    derived = []
+    for i, d in enumerate(ir.derived):
+        value, basis = _derived_value(d)
+        derived.append(DerivedDecision(f"derived.{i}", d.label, value, basis,
+                                       d.is_overridable))
+    derived = tuple(derived)
 
     # operations / joints carried for the document + tool schedule
     structure["operations"] = set(ir.operations)

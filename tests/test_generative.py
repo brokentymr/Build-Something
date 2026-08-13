@@ -91,3 +91,26 @@ def test_invariant_catches_bad_span():
     except Exception as exc:  # noqa: BLE001
         assert "span" in str(exc).lower()
     print("  [ok] deterministic audit catches an over-long span the agent might miss")
+
+
+def test_a_derived_decision_reaches_the_user_as_a_number():
+    """'Derived, not asked' tells someone what the app decided for them, so it has
+    to be a number. A released sofa showed a user 'Interior Seat Width (between
+    arms): overall_width - 2*arm_width' — a formula in symbol names is engine-speak,
+    the same defect as a raw part id in prose. The model still never emits the
+    number; the engine computes it and keeps the formula as the basis."""
+    from build_assistant.generative.model import DesignIR
+    from build_assistant.generative.compiler import compile_design
+    from tests.test_details import _CASE
+    spec = {**_CASE, "derived": [
+        {"label": "Interior width", "value": "width - 2*carcass_t",
+         "basis": "Clear span between the sides", "is_overridable": False},
+        {"label": "Finish", "value": "left bare", "basis": "User asked for raw wood",
+         "is_overridable": True}]}
+    geo = compile_design(DesignIR.from_dict(spec))
+    by_label = {d.label: d for d in geo.derived_decisions}
+    assert by_label["Interior width"].value == "28.5 in", by_label["Interior width"].value
+    assert "width - 2*carcass_t" in by_label["Interior width"].basis
+    # prose that is not an expression is left exactly as written
+    assert by_label["Finish"].value == "left bare"
+    print("  [ok] a derived decision shows its value, and keeps its formula as basis")
