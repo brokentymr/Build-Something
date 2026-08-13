@@ -311,7 +311,10 @@ def test_loop_never_ends_worse_than_the_best_round_it_found():
     assert res.geo is not None
     from build_assistant.generative.audit import audit_placement
     assert audit_placement(res.geo) == [], "the loop shipped the regressed model"
-    assert any(t["action"] == "revert_to_best" for t in res.rounds), res.rounds
+    # Either exit records the reversion: the end-of-budget revert, or the early
+    # stop when an optional improvement round breaks a design that was clean.
+    assert any(t["action"] in ("revert_to_best", "improve_failed") for t in res.rounds), \
+        [t["action"] for t in res.rounds]
     print("  [ok] the loop keeps the best model it found, not the last one")
 
 
@@ -601,3 +604,33 @@ def test_a_member_running_through_a_panel_is_offered_both_fixes():
     assert "one piece per bay" in msg, msg          # remedy 1 survives
     assert "runs continuously" in msg and "notch" in msg, msg   # remedy 2 is offered
     print("  [ok] a member crossing a panel is offered both fixes, not just the split")
+
+
+def test_an_optional_improvement_that_breaks_the_design_stops_the_loop():
+    """The reviewer's one round from a clean design is optional — the design
+    already compiled. When that round breaks it, the loop used to spend the rest of
+    its budget chasing defects the optional round introduced: a firewood rack clean
+    at round 0 with 14 parts went to 25 and burned four more rounds failing to get
+    back. Take the clean model and stop."""
+    from webapp.designer import DesignAgent
+    broken = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in broken["parts"]:
+        if p["id"] == "C":
+            p.update({"qty_expr": "6", "step_x": "15.65", "step_z": "0"})
+    agent = DesignAgent()
+    agent.synthesize = lambda *a, **k: DesignIR.from_dict(_CASE)     # clean at once
+    agent.critique = lambda *a, **k: {"issues": [{"severity": "high", "what": "arms"}],
+                                      "buildable": True}
+    repairs = [0]
+
+    def repair(*a, **k):
+        repairs[0] += 1
+        return DesignIR.from_dict(broken)
+
+    agent.repair = repair
+    res = agent.design("firewood rack", {}, max_rounds=8)
+    assert res.converged, res.error
+    assert audit_placement(res.geo) == [], "shipped the broken model"
+    assert repairs[0] == 1, f"burned {repairs[0]} rounds on an optional improvement"
+    assert "arms" in res.ir.warnings, res.ir.warnings
+    print("  [ok] a failed optional improvement costs one round, not the budget")

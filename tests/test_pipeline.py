@@ -233,7 +233,12 @@ def test_coming_back_mid_design_attaches_instead_of_starting_a_second_one():
         def answers(self, pid): return {"node": S.GENERATIVE}
 
     store, real = FakeStore(), S.STORE
+    real_worker = S._run_generation
     S.STORE = store
+    # The non-attached branch starts the real worker on a thread; this test is
+    # about the branch taken, not the design run, and a background thread failing
+    # against a stub store prints a traceback into an otherwise clean suite.
+    S._run_generation = lambda pid: None
     try:
         res = S.do_generate("p1")
         assert res.get("attached") and store.started == 0, res
@@ -241,7 +246,7 @@ def test_coming_back_mid_design_attaches_instead_of_starting_a_second_one():
         S.do_generate("p1")
         assert store.started == 1
     finally:
-        S.STORE = real
+        S.STORE, S._run_generation = real, real_worker
     print("  [ok] returning to a running design attaches to it, does not restart it")
 
 

@@ -516,7 +516,8 @@ Keep it genuinely buildable."""
                     if note and note not in ir.warnings:
                         ir.warnings.append(note)
                 return DesignResult(ir, geo, True, trail)
-            if geo and not error and blocking:
+            improving = bool(geo and not error and blocking)
+            if improving:
                 spent_on_critique = True
                 # If this round makes things worse we revert to the clean model, and
                 # the reviewer's objection has to travel with it.
@@ -539,6 +540,20 @@ Keep it genuinely buildable."""
                 trail.append({"round": r, "action": "repair_failed", "error": str(exc)})
                 continue
             geo, error = self._try_compile(ir)
+            if improving and error:
+                # The round was optional — the design already compiled clean and
+                # this was the reviewer's one chance to improve it. It broke it
+                # instead. Do not let the loop spend the rest of its budget
+                # chasing defects an optional round introduced: a firewood rack
+                # clean at round 0 with 14 parts went to 25 and spent four more
+                # rounds failing to get back. Take the clean model and stop.
+                trail.append({"round": r, "action": "improve_failed", "error": error,
+                              "parts": geo.piece_count() if geo else 0})
+                _, ir, geo, error = best
+                for note in clean_notes:
+                    if note not in ir.warnings:
+                        ir.warnings.append(note)
+                return DesignResult(ir, geo, True, trail)
             now = set(_defect_keys(error))
             for gone in seen_defects - now:
                 if gone not in settled:
