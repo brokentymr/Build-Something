@@ -34,8 +34,18 @@ PAGE_H = 1056
 MARGIN = 40
 FOOTER_H = 28
 CONTENT_W = PAGE_W - 2 * MARGIN               # 736 — body pinned to printable area
-AVAILABLE = PAGE_H - 2 * MARGIN - FOOTER_H    # 948
-CAPACITY = 855                                 # below available (Lesson 5 buffer)
+# What a page actually gives a block, measured in the browser rather than derived
+# on paper: the run-head and the footer are flex children of the page, so they eat
+# their own height before .content gets any. The old arithmetic here read 948 and
+# was wrong by 41px, which made every capacity argument built on it wrong too.
+AVAILABLE = 907
+# Pack close to that, then check. The margin below AVAILABLE is insurance against
+# a Gate 2 failure, which blocks release outright — so rather than pick a buffer
+# and hope, verified_pages packs tight and re-packs looser only when a rendered
+# page genuinely overflows. A guess becomes a measurement.
+CAPACITY = 900
+CAPACITY_FLOOR = 830                           # give up tightening below this
+CAPACITY_STEP = 22
 
 CSS = f"""
 * {{ box-sizing: border-box; }}
@@ -206,7 +216,41 @@ def _measure(blocks: list[Block]) -> dict[str, float]:
     return {k: float(v) for k, v in json.loads(m.group(1)).items()}
 
 
-def _paginate(blocks: list[Block], heights: dict[str, float]) -> list[list[Block]]:
+def _overflowing_pages(html: str) -> list[int]:
+    """Which pages the browser says do not fit — the same question Gate 2 asks."""
+    probe = html.replace(
+        "</body>",
+        """<script>window.addEventListener('load',function(){
+          var out=[];
+          document.querySelectorAll('.page').forEach(function(p,i){
+            var c=p.querySelector('.content');
+            if(c.scrollHeight-c.clientHeight>2) out.push(i+1);});
+          var d=document.createElement('div');d.id='OVF';
+          d.textContent=JSON.stringify(out);document.body.appendChild(d);});</script></body>""")
+    m = re.search(r'id="OVF">([^<]*)<', _dump_dom(probe))
+    return json.loads(m.group(1)) if m else []
+
+
+def verified_pages(blocks: list[Block], heights: dict[str, float], render) -> list[list[Block]]:
+    """Pack tight, then ask the browser whether it fits; loosen only if it does not.
+
+    Packing to a flat 90% of the page was insurance against a Gate 2 failure — an
+    overflowing page blocks release — and it cost that 10% on every page of every
+    document whether or not any page was near the edge. The browser can settle it:
+    lay the pages out, measure them, and step the capacity back only when a page
+    genuinely overflows. Most documents never take the second pass.
+    """
+    cap = CAPACITY
+    while True:
+        pages = _paginate(blocks, heights, cap)
+        over = _overflowing_pages(render(pages))
+        if not over or cap <= CAPACITY_FLOOR:
+            return pages
+        cap -= CAPACITY_STEP
+
+
+def _paginate(blocks: list[Block], heights: dict[str, float],
+              capacity: float = CAPACITY) -> list[list[Block]]:
     """Pass 2: pack blocks into fixed-height pages against measured heights."""
     pages: list[list[Block]] = []
     cur: list[Block] = []
@@ -219,7 +263,7 @@ def _paginate(blocks: list[Block], heights: dict[str, float]) -> list[list[Block
             pages.append([b])
             cur, used = [], 0.0
             continue
-        if used + h > CAPACITY and cur:
+        if used + h > capacity and cur:
             pages.append(cur)
             cur, used = [], 0.0
         cur.append(b)

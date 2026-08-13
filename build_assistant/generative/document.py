@@ -411,17 +411,21 @@ def build_generic_document(geo: Geometry, plan: NestingPlan, packet: dict,
     runhead — and each one had to remember that ``node_kind`` is an id: a case_good
     design printed CASE_GOOD across every page and its footer."""
     import os
-    from ..document.engine import _measure, _paginate, _render_pages
+    from ..document.engine import _measure, verified_pages, _render_pages
 
     blocks = build_blocks_generic(geo, plan, packet)
     heights = _measure(blocks)
-    pages = _paginate(blocks, heights)
     kind = str(geo.structure.get("node_kind", geo.node) or "build").replace("_", " ")
     od = overall_dims(geo)
     dims = (f"{fmt_inches(od[0])} x {fmt_inches(od[1])} x {fmt_inches(od[2])}"
             if od else "")
     runhead = f"{kind} &middot; {dims}" if dims else kind
-    html = _render_pages(pages, runhead=runhead, footer_left=f"{kind} build packet")
+
+    def render(pages):
+        return _render_pages(pages, runhead=runhead, footer_left=f"{kind} build packet")
+
+    pages = verified_pages(blocks, heights, render)
+    html = render(pages)
     os.makedirs("out", exist_ok=True)
     html_path = os.path.join("out", f"{out_name}.html")
     with open(html_path, "w") as fh:
