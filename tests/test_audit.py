@@ -267,3 +267,32 @@ def test_a_part_longer_than_any_board_still_names_the_remedy():
     assert "no glue-up makes a board longer" in msg, msg
     assert "96in" in msg, "the message must state the real board length"
     print("  [ok] a part longer than any board names the remedy")
+
+
+def test_a_piece_that_is_not_the_size_asked_for_is_caught():
+    """An 84in sofa was placed as a 237in row of parts and released: 21 pages, all
+    three gates green. Nothing escaped its envelope, nothing floated, nothing
+    interpenetrated — the design was internally consistent about being the wrong
+    object, and the gates check provenance and bounds, not the brief."""
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]],
+            "elements": [{"id": "case", "kind": "carcass", "length_expr": "150",
+                          "width_expr": "depth", "height_expr": "height", "faces": []}]}
+    for i, p in enumerate(spec["parts"]):
+        p["box_x"] = str(i * 40)                 # laid out in a row, not assembled
+    issues = audit_placement(compile_design(DesignIR.from_dict(spec)))
+    brief = [i for i in issues if "than the brief" in i]
+    assert brief, issues
+    assert "30in on x" in brief[0] and "150.0in" in brief[0], brief[0]
+    print("  [ok] a piece that is not the size asked for is caught")
+
+
+def test_a_frame_built_deliberately_undersize_is_not_flagged():
+    """An upholstery frame is built an inch or two under so the padding and fabric
+    land on the finished dimension. That is correct, not a defect."""
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in spec["parts"]:                       # every part 1in narrower
+        if p["id"] in ("A", "B"):
+            p["box_x"] = "0" if p["id"] == "A" else "width - carcass_t - 1"
+    issues = audit_placement(compile_design(DesignIR.from_dict(spec)))
+    assert not [i for i in issues if "than the brief" in i], issues
+    print("  [ok] a frame an inch under its finished size is accepted")

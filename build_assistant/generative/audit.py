@@ -220,6 +220,24 @@ def audit_placement(geo: Geometry) -> list[str]:
             f"show a panel the cut list does not buy. Set box_{axis_ext} to the stock "
             f"thickness ({part.thickness:.3f}), and use the joint depth only to seat it.")
 
+    # ---- 6. the piece is not the size that was asked for ------------------
+    # An 84in sofa was placed as a 237in row of parts. Every other check passed —
+    # nothing escaped its envelope, nothing floated, nothing interpenetrated —
+    # because the design was internally consistent about being the wrong object.
+    # The release gates cannot see this either: they check provenance, overflow and
+    # bounds, not whether the thing matches the brief.
+    for axis_lo, ext, asked in _asked_dimensions(geo):
+        built = (max(b[axis_lo] + b[ext] for b in boxes)
+                 - min(b[axis_lo] for b in boxes))
+        slack = max(3.0, 0.12 * asked)          # frames are built deliberately under
+        if abs(built - asked) > slack:
+            issues.append(
+                f"the piece was asked to be {asked:g}in on {axis_lo} and the parts "
+                f"lay out to {built:.1f}in — {'far larger' if built > asked else 'far smaller'} "
+                f"than the brief. Parts are probably placed side by side rather than "
+                f"assembled: every box_{axis_lo} should put its part where it belongs in "
+                f"the finished piece, not in a row.")
+
     # ---- 6. declared size the parts do not add up to -----------------------
     # The height-stack invariant checks declared layers against the declared
     # overall — both numbers can agree while the actual parts build to something
@@ -261,3 +279,25 @@ def _declared_height(geo: Geometry) -> float | None:
         except Exception:  # noqa: BLE001
             continue
     return None
+
+
+#: Param ids that plainly name an overall dimension, and the axis each governs.
+#: Matched whole, so `arm_width` or `plinth_height` never counts as the outside.
+_ASKED = {
+    "x": ("overall_length", "overall_width", "length", "width"),
+    "y": ("overall_depth", "depth"),
+    "z": ("overall_height", "height", "total_height"),
+}
+
+
+def _asked_dimensions(geo: Geometry):
+    """(axis, extent, value) for each outside dimension the user actually stated."""
+    out = []
+    for axis, names in _ASKED.items():
+        ext = dict(AXES)[axis]
+        for name in names:
+            field = geo.scalars.get(f"param.{name}")
+            if field and field.value and float(field.value) > 0:
+                out.append((axis, ext, float(field.value)))
+                break                            # first match wins, most specific first
+    return out

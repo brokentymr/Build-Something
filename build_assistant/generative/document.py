@@ -74,6 +74,11 @@ def _human(text: str, geo: Geometry) -> str:
                 text = text.replace(mid, get_material(mid).display_name)
             except Exception:  # noqa: BLE001 — unknown id stays as written
                 pass
+    # param ids leak the same way — "seat_height" reached a sofa's page
+    for key in sorted((k[6:] for k in geo.scalars if k.startswith("param.")),
+                      key=len, reverse=True):
+        if "_" in key and re.search(rf"\b{re.escape(key)}\b", text):
+            text = re.sub(rf"\b{re.escape(key)}\b", key.replace("_", " "), text)
     text = re.sub(r"\s*\(\s*\)", "", text)          # an emptied parenthetical
     # The agent writes "BACK panel", and the name it stands for is already
     # "Back panel" — substituting leaves "back panel panel". Collapse the stutter,
