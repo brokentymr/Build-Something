@@ -582,3 +582,22 @@ def test_a_wooden_part_named_like_hardware_is_still_a_part():
     issues = audit_placement(compile_design(DesignIR.from_dict(spec)))
     assert not any("hardware, not a part" in i for i in issues), issues
     print("  [ok] a wooden part named like hardware is left alone")
+
+
+def test_a_member_running_through_a_panel_is_offered_both_fixes():
+    """A shelf crossing a centre divider becomes one shelf per bay. A leg passing
+    through a shelf does not become two legs — the shelf is notched around it. The
+    two look identical in the geometry, and a live run was told to split a leg into
+    bays, which is how you get a cabinet with four half-legs."""
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in spec["parts"]:                     # a leg standing through the shelf
+        if p["id"] == "A":
+            p.update({"box_x": "6", "box_w": "1.5", "box_d": "1.5",
+                      "box_z": "0", "box_h": "height"})
+    issues = [i for i in audit_placement(compile_design(DesignIR.from_dict(spec)))
+              if "runs straight through" in i]
+    assert issues, audit_placement(compile_design(DesignIR.from_dict(spec)))
+    msg = issues[0]
+    assert "one piece per bay" in msg, msg          # remedy 1 survives
+    assert "runs continuously" in msg and "notch" in msg, msg   # remedy 2 is offered
+    print("  [ok] a member crossing a panel is offered both fixes, not just the split")

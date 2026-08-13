@@ -343,14 +343,29 @@ def audit_placement(geo: Geometry) -> list[str]:
                     # become one piece per bay, so say so with the numbers.
                     bay = obstacle[lo] - spanner[lo]
                     step = obstacle[lo] + obstacle[ext] - spanner[lo]
+                    # Two things look identical here and want opposite fixes. A
+                    # shelf crossing a centre divider becomes one shelf per bay. A
+                    # leg passing through a shelf does not become two legs — the
+                    # shelf is notched around it. A live run was told to split a
+                    # leg into bays, which is how you get a sofa with eight
+                    # half-legs. The geometry cannot tell these apart, so both are
+                    # offered and the model, which knows which member is
+                    # continuous, chooses.
                     issues.append(
-                        f"part {spanner['id']} runs straight through {obstacle['id']}, which "
-                        f"stands inside its span on {lo}. Do NOT just shorten it — that would "
-                        f"leave one bay empty. Make it one piece per bay: keep "
-                        f"box_{lo}={spanner[lo]:.3f}, set box_{ext}={bay:.3f} (the bay width), "
-                        f"set qty to 2 per level and step_{lo}={step:.3f} so the second piece "
-                        f"starts on the far side of {obstacle['id']}. Adjust the cut list "
-                        f"length to match.")
+                        f"part {spanner['id']} ({names.get(spanner['id'], spanner['id'])}) "
+                        f"runs straight through {obstacle['id']} "
+                        f"({names.get(obstacle['id'], obstacle['id'])}), which stands inside "
+                        f"its span on {lo}. Do NOT simply shorten it — that leaves one side "
+                        f"empty. Either (1) {spanner['id']} is interrupted, and becomes one "
+                        f"piece per bay: keep box_{lo}={spanner[lo]:.3f}, set "
+                        f"box_{ext}={bay:.3f} (the bay), qty 2 per level and "
+                        f"step_{lo}={step:.3f} so the second starts past {obstacle['id']}, "
+                        f"adjusting the cut list length to match; or (2) {spanner['id']} runs "
+                        f"continuously — a post through a shelf, a rail through a divider — "
+                        f"and it is {obstacle['id']} that must give way: notch it by declaring "
+                        f"joint_type on {obstacle['id']} with joint_depth_expr of at least "
+                        f"{min(spanner[ext], obstacle[ext]):.3f}, or split {obstacle['id']} "
+                        f"instead.")
                 elif _joint_shaped(a, b, lo, pen):
                     # One board thickness of overlap. Told only to "shorten one of
                     # them", the repair shortens until the part touches nothing,

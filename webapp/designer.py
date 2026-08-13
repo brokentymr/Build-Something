@@ -199,7 +199,8 @@ finish. For any unsupported shelf/panel add a span invariant whose flex_threshol
 is the MAX span in INCHES the material can hold without sagging (3/4 plywood/solid
 shelf ~ 30-36; thinner stock less). Never set a tiny threshold. Include a back
 panel or diagonal brace on tall casework so it can't rack. List screws, nails,
-brads, bolts and brackets under `fasteners` — never as parts. `parts` is wood to
+brads, bolts, brackets, hinges, chains, catches and any other bought hardware
+under `fasteners` — never as parts. `parts` is wood to
 cut; a screw has no cut size and no place in the assembly drawing, and putting
 one there costs a repair round to undo.
 Keep it genuinely buildable."""
