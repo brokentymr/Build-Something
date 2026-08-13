@@ -135,3 +135,21 @@ def test_lumber_is_counted_in_boards_not_sheets():
     geo3 = compile_design(DesignIR.from_dict(mixed))
     assert _stock_word(geo3, plan_nesting(geo3)) == "Stock"
     print("  [ok] plywood is sheets, lumber is boards, a mix is stock")
+
+
+def test_a_fastener_written_as_a_name_does_not_kill_the_document():
+    """The schema asks for objects. A model that writes `"fasteners": ["#8 x 2in
+    screw"]` instead crashed the predrill chart with an AttributeError — after the
+    design had already converged and every gate would have passed. Agent output is
+    normalised at the boundary, not trusted to be well-shaped downstream."""
+    from build_assistant.generative.model import DesignIR
+    from build_assistant.generative.compiler import compile_design
+    from build_assistant.generative.detail import predrill_chart
+    from tests.test_details import _CASE
+    spec = {**_CASE, "fasteners": ["#8 x 2in cabinet screw",
+                                   {"fastener_id": "brad_18ga", "spacing": 6}]}
+    ir = DesignIR.from_dict(spec)
+    assert all(isinstance(f, dict) for f in ir.fasteners), ir.fasteners
+    geo = compile_design(ir)
+    predrill_chart(geo)          # must not raise
+    print("  [ok] a fastener named as a bare string is normalised, not fatal")

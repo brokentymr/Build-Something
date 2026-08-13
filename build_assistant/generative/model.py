@@ -204,7 +204,12 @@ class DesignIR:
                         for i in d.get("invariants", [])],
             derived=[DerivedNote(**n) for n in d.get("derived", [])],
             operations=list(d.get("operations", [])),
-            fasteners=list(d.get("fasteners", [])),
+            # The schema asks for objects, and a model that writes
+            # `"fasteners": ["#8 x 2in screw"]` instead used to crash the document
+            # build — after the design had already converged. Normalise at the
+            # boundary: a bare name is a fastener with nothing else said about it.
+            fasteners=[f if isinstance(f, dict) else {"fastener_id": str(f)}
+                       for f in (d.get("fasteners") or [])],
             warnings=list(d.get("warnings", [])),
         )
 

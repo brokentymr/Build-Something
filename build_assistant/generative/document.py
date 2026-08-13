@@ -276,7 +276,11 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
     tol = packet.get("tolerances") or []
     if tol:
         B("h_tol", "header", _h("Tolerance budget"))
-        B("tol", "table", '<div class="agent-note">'+_table(["Check", "Tolerance"], [[_e(_human(t.get("check", ""), geo)), _e(t.get("tolerance", ""))] for t in tol])+'</div>')
+        rows = [[_e(_human(t.get("check", ""), geo)), _e(t.get("tolerance", ""))]
+                for t in tol]
+        for n, chunk in enumerate(_chunks(rows, 20)):   # a writer can list many
+            B(f"tol{n}", "table", '<div class="agent-note">'
+              + _table(["Check", "Tolerance"], chunk) + '</div>')
 
     # ---------- BUILD SEQUENCE ----------
     steps = packet.get("steps") or []
