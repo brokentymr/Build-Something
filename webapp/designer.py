@@ -261,7 +261,7 @@ Keep it genuinely buildable."""
     # ---------------------------------------------------------------- repair
     def repair(self, ir: DesignIR, issues: list, error: str,
                photos: list | None = None, settled: list | None = None,
-               started_parts: int = 0) -> DesignIR:
+               started_parts: int = 0, stuck: int = 0) -> DesignIR:
         system = ("You revise a parametric build model to fix the listed problems. Keep the "
                   "same JSON shape. Change only what's needed. The engine computes numbers "
                   "from your formulas.")
@@ -277,6 +277,16 @@ Keep it genuinely buildable."""
                    if started_parts and len(ir.parts) > 2 * started_parts else "")
                 + (f"Already settled in earlier rounds, do NOT reintroduce: "
                    f"{json.dumps(settled[:8])}\n" if settled else "")
+                # A shoe cabinet reported the same floating panel at rounds 3, 4
+                # and 5 — three rounds of a fix that changed nothing about it.
+                # Saying so is the difference between trying again and trying
+                # something else.
+                + (f"YOUR LAST {stuck} REVISIONS DID NOT CHANGE THIS DEFECT AT ALL. "
+                   f"Repeating the same adjustment will not work. Where the message "
+                   f"offers two remedies, you have been taking the same one — take "
+                   f"the other. Where it offers one, the numbers it gives are exact: "
+                   f"use them verbatim rather than a value near them.\n"
+                   if stuck >= 2 else "")
                 + "Return the full corrected DesignIR JSON only.")
         # the reference photos ride along, so a repair does not drift away from
         # the piece the user showed us while it is fixing something else
@@ -488,6 +498,7 @@ Keep it genuinely buildable."""
         seen_defects, settled = set(_defect_keys(error)), []
         first_parts = len(ir.parts)          # a runaway repair is a repair going nowhere
         spent_on_critique, clean_notes = False, []
+        stuck, last_keys = 0, set(_defect_keys(error))
 
         for r in range(1, max_rounds + 1):
             say("reviewing", f"round {r} of {max_rounds} — checking the design holds up")
@@ -526,7 +537,7 @@ Keep it genuinely buildable."""
             try:
                 ir = self.repair(ir, issues or [{"what": error, "fix_hint": "make it compile"}],
                                  error, photos=photos, settled=settled,
-                                 started_parts=first_parts)
+                                 started_parts=first_parts, stuck=stuck)
             except (TypeError, NameError, AttributeError):
                 # These are bugs in this code, not weather. Swallowing them as
                 # "repair_failed" hid a NameError for several runs — every repair
@@ -540,6 +551,9 @@ Keep it genuinely buildable."""
                 trail.append({"round": r, "action": "repair_failed", "error": str(exc)})
                 continue
             geo, error = self._try_compile(ir)
+            keys = set(_defect_keys(error))
+            stuck = stuck + 1 if (keys and keys == last_keys) else 0
+            last_keys = keys
             if improving and error:
                 # The round was optional — the design already compiled clean and
                 # this was the reviewer's one chance to improve it. It broke it

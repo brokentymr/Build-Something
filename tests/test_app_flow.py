@@ -314,7 +314,7 @@ def test_the_loop_actually_reaches_a_repair_round():
                                       "buildable": True}
     repairs = []
 
-    def repair(ir, issues, error, photos=None, settled=None, started_parts=0):
+    def repair(ir, issues, error, photos=None, settled=None, started_parts=0, **kw):
         repairs.append(photos)
         return DesignIR.from_dict(_CASE)          # the sound version
 
@@ -345,7 +345,7 @@ def test_one_failed_repair_does_not_end_the_design():
                                       "buildable": True}
     calls = []
 
-    def repair(ir, issues, error, photos=None, settled=None, started_parts=0):
+    def repair(ir, issues, error, photos=None, settled=None, started_parts=0, **kw):
         calls.append(len(calls))
         if len(calls) == 1:
             raise TimeoutError("The read operation timed out")
@@ -390,7 +390,7 @@ def test_the_repair_is_told_what_earlier_rounds_settled():
     seen = []
     drafts = [DesignIR.from_dict(stepped), DesignIR.from_dict(_CASE)]
 
-    def repair(ir, issues, error, photos=None, settled=None, started_parts=0):
+    def repair(ir, issues, error, photos=None, settled=None, started_parts=0, **kw):
         seen.append(list(settled or []))
         return drafts.pop(0)
 
@@ -478,3 +478,30 @@ def test_the_client_script_parses():
         r = subprocess.run([node, "--check", path], capture_output=True, text=True)
         assert r.returncode == 0, f"{path} does not parse:\n{r.stderr}"
     print("  [ok] the client script parses")
+
+
+def test_the_repair_is_told_when_its_last_attempts_changed_nothing():
+    """A shoe cabinet reported the same floating panel at rounds 3, 4 and 5 —
+    three rounds of a fix that moved it not at all. Saying so is the difference
+    between trying again and trying something else."""
+    from webapp.designer import DesignAgent
+    from build_assistant.generative.model import DesignIR
+    from tests.test_details import _CASE
+    broken = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in broken["parts"]:
+        if p["id"] == "C":
+            p.update({"box_z": "200"})            # floats, and stays floating
+    seen = []
+
+    def repair(ir, issues, error, photos=None, settled=None, started_parts=0, stuck=0):
+        seen.append(stuck)
+        return DesignIR.from_dict(broken)
+
+    agent = DesignAgent()
+    agent.synthesize = lambda *a, **k: DesignIR.from_dict(broken)
+    agent.critique = lambda *a, **k: {"issues": [], "buildable": True}
+    agent.repair = repair
+    agent.design("cabinet", {}, max_rounds=4)
+    assert seen[0] == 0, seen
+    assert max(seen) >= 2, f"the loop never told the repair it was stuck: {seen}"
+    print(f"  [ok] an unchanged defect is reported back to the repair (stuck={seen})")
