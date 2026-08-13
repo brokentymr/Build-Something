@@ -511,6 +511,15 @@ def main(argv):
     port = 8000
     if "--port" in argv:
         port = int(argv[argv.index("--port") + 1])
+    # Say which code this is. A server left running across a code change answered
+    # requests with the old build and made a stale result look like a new one.
+    try:
+        import subprocess
+        rev = subprocess.run(["git", "log", "-1", "--format=%h %s"],
+                             capture_output=True, text=True, timeout=5).stdout.strip()
+    except Exception:  # noqa: BLE001
+        rev = "unknown"
+    print(f"  build: {rev}", flush=True)
     srv = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     print(f"Build Assistant app on http://0.0.0.0:{port}  (AI: {AI_MODE})")
     srv.serve_forever()
