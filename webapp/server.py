@@ -388,31 +388,48 @@ def _plain_failure(err: str) -> str:
     return "This one did not come together: " + err[:200]
 
 
+def _persist_design(pid: str, res) -> None:
+    """Write the model and its round trail beside the packet, pass or fail.
+
+    A design that fails is the one worth reading, and it was the one being thrown
+    away: the trail scrolled past in the server log and the model was never
+    written at all, so a defect could only be studied while it was still on
+    screen."""
+    try:
+        os.makedirs("out", exist_ok=True)
+        if res.ir is not None:
+            with open(os.path.join("out", f"project_{pid}_ir.json"), "w") as fh:
+                json.dump(res.ir.to_dict(), fh, indent=1)
+        with open(os.path.join("out", f"project_{pid}_trail.json"), "w") as fh:
+            json.dump({"converged": res.converged, "error": res.error,
+                       "rounds": res.rounds}, fh, indent=1, default=str)
+    except Exception:  # noqa: BLE001 — persistence must never fail a build
+        pass
+
+
 def _design_generatively(pid: str, answers: dict, say):
     """Run the design loop, then author the packet, reporting real phases."""
     description = STORE.get_description(pid)
     photos = [p["data_url"] for p in STORE.photos(pid)]
     clean = {k: v for k, v in answers.items() if k != "node"}
     res = DESIGNER.design(description, clean, photos=photos, progress=say)
-    if res.geo is None:
-        raise RuntimeError(res.error or "the design did not come together")
     # the trail is how a failure is read; the loop prints it round by round as it
     # goes, so all that is left is to say which project it belonged to
     print(f"[design {pid}] {len(res.rounds)} round(s), "
           f"converged={res.converged}", flush=True)
+    # Keep the model and the trail whichever way it went. This used to run after
+    # the refusal below, so the one comment claiming a failure was diagnosable
+    # later described a file that only ever existed for successes -- and twice in
+    # one day a design failed in a way worth studying and left nothing to study.
+    _persist_design(pid, res)
+    if res.geo is None:
+        raise RuntimeError(res.error or "the design did not come together")
     if not res.converged:
         # The loop knows it failed and said so; releasing anyway is how a sofa
         # 265 inches long reached a finished packet with every gate green. A
         # design that did not come together is not a document.
         raise RuntimeError(
             "the design did not resolve — " + (res.error or "unknown")[:240])
-    # keep the model that produced the packet, so a failure is diagnosable later
-    try:
-        os.makedirs("out", exist_ok=True)
-        with open(os.path.join("out", f"project_{pid}_ir.json"), "w") as fh:
-            json.dump(res.ir.to_dict(), fh, indent=1)
-    except Exception:  # noqa: BLE001 — persistence must never fail a build
-        pass
     say("writing", "writing the build instructions")
     packet = DESIGNER.author_packet(res.ir, res.geo)
     return res.geo, packet

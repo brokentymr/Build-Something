@@ -505,3 +505,33 @@ def test_the_repair_is_told_when_its_last_attempts_changed_nothing():
     assert seen[0] == 0, seen
     assert max(seen) >= 2, f"the loop never told the repair it was stuck: {seen}"
     print(f"  [ok] an unchanged defect is reported back to the repair (stuck={seen})")
+
+
+def test_a_failed_design_leaves_something_to_diagnose():
+    """The model was written only after the refusal that a failed design triggers,
+    so the one comment claiming a failure was diagnosable later described a file
+    that existed only for successes. Twice in one day a design failed in a way
+    worth studying and left nothing to study."""
+    import json, os
+    from webapp import server
+    from webapp.designer import DesignResult
+    from build_assistant.generative.model import DesignIR
+    from tests.test_details import _CASE
+
+    ir = DesignIR.from_dict(_CASE)
+    rounds = [{"round": 0, "action": "synthesize", "error": "PlacementError: x"}]
+    res = DesignResult(ir=ir, geo=object(), converged=False, rounds=rounds,
+                       error="PlacementError: the parts do not fit")
+    for path in ("out/project_failtest_ir.json", "out/project_failtest_trail.json"):
+        if os.path.exists(path):
+            os.remove(path)
+    server._persist_design("failtest", res)
+    assert os.path.exists("out/project_failtest_ir.json"), "the failed model is gone"
+    trail = json.load(open("out/project_failtest_trail.json"))
+    assert trail["converged"] is False
+    assert "do not fit" in trail["error"]
+    assert trail["rounds"][0]["action"] == "synthesize"
+    # a design that never produced a model at all still records why
+    server._persist_design("failtest2", DesignResult(None, None, False, [], "synthesis failed"))
+    assert json.load(open("out/project_failtest2_trail.json"))["error"] == "synthesis failed"
+    print("  [ok] a failed design leaves its model and its trail behind")
