@@ -350,3 +350,32 @@ def test_an_overlong_span_says_how_to_carry_it():
     assert "29.0in" in msg, "the message must state the resulting bay"
     assert "clear distance between them" in msg, "the other remedy must be named"
     print("  [ok] an overlong span names the supports that would carry it")
+
+
+def test_escaped_repeats_are_told_the_step_that_would_fit():
+    """A sofa spent six of eight rounds on this defect — slats, blocks and braces
+    marching out past the end — because the message said to check step_x without
+    ever saying what it should be."""
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    spec["parts"].append(
+        {"id": "BLK", "name": "corner block", "element": "case",
+         "material_role": "carcass", "length_expr": "3", "width_expr": "3",
+         "qty_expr": "2", "box_x": "0", "box_y": "0", "box_z": "0",
+         "box_w": "3", "box_d": "3", "box_h": "3", "step_x": "60"})
+    issues = audit_placement(compile_design(DesignIR.from_dict(spec)))
+    esc = [i for i in issues if i.startswith("part BLK")]
+    assert esc, issues
+    assert "step_x = 27.000" in esc[0], esc[0]
+    assert "NOT the full width" in esc[0]
+    print("  [ok] escaped repeats are given the step that would fit them")
+
+
+def test_parts_that_cannot_sit_side_by_side_are_told_so():
+    """Four full-width shelves have no step that fits across; the honest answer is
+    that they repeat up the height instead."""
+    geo = _with({"C": {"qty_expr": "4", "step_x": "30", "step_z": "0"}})
+    esc = [i for i in audit_placement(geo) if i.startswith("part C")]
+    assert esc, "expected the shelves to escape"
+    assert "overlap them" in esc[0], esc[0]
+    assert "different axis" in esc[0]
+    print("  [ok] parts that cannot fit side by side are told so, not given a bad step")

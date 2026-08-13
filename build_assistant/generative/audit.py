@@ -87,22 +87,29 @@ def audit_placement(geo: Geometry) -> list[str]:
         slack = max(1.0, 0.03 * max(ex1 - ex0, ey1 - ey0, ez1 - ez0))
         escaped: dict[str, list[str]] = {}
         for b in boxes:
-            over = []
+            over, over_axis = [], []
             if b["x"] + b["w"] > ex1 + slack:
-                over.append(f"x reaches {b['x'] + b['w']:.1f} but the piece is only {ex1:.1f} wide")
+                over.append(f"x reaches {b['x'] + b['w']:.1f} but the piece is only {ex1:.1f} wide"); over_axis.append("x")
             if b["x"] < ex0 - slack:
-                over.append(f"x starts at {b['x']:.1f}, left of the piece")
+                over.append(f"x starts at {b['x']:.1f}, left of the piece"); over_axis.append("x")
             if b["y"] + b["d"] > ey1 + slack:
-                over.append(f"y reaches {b['y'] + b['d']:.1f} but the piece is only {ey1:.1f} deep")
+                over.append(f"y reaches {b['y'] + b['d']:.1f} but the piece is only {ey1:.1f} deep"); over_axis.append("y")
             if b["z"] + b["h"] > ez1 + slack:
-                over.append(f"z reaches {b['z'] + b['h']:.1f} but the piece is only {ez1:.1f} tall")
+                over.append(f"z reaches {b['z'] + b['h']:.1f} but the piece is only {ez1:.1f} tall"); over_axis.append("z")
             if over:
-                escaped.setdefault(b["id"], []).append(over[0])
+                escaped.setdefault(b["id"], []).append((over[0], over_axis[0]))
+        # Group every instance of a part so the correct step can be worked out from
+        # how many there are.
+        all_by_id: dict[str, list] = {}
+        for b in boxes:
+            all_by_id.setdefault(b["id"], []).append(b)
         for pid, msgs in escaped.items():
+            axis = msgs[0][1]
+            group = all_by_id.get(pid, [])
             issues.append(
-                f"part {pid} ({names.get(pid, pid)}) is placed outside the object: {msgs[0]}. "
-                f"{len(msgs)} of its instances escape — check its box_* origin and its "
-                f"step_x/step_y/step_z, which should repeat instances INSIDE the piece.")
+                f"part {pid} ({names.get(pid, pid)}) is placed outside the object: "
+                f"{msgs[0][0]}. {len(msgs)} of its {len(group)} instance(s) escape. "
+                + _step_remedy(group, axis, env))
 
     # ---- 2. floating instances (touch nothing) ----------------------------
     floating: dict[str, int] = {}
@@ -301,3 +308,40 @@ def _asked_dimensions(geo: Geometry):
                 out.append((axis, ext, float(field.value)))
                 break                            # first match wins, most specific first
     return out
+
+
+def _step_remedy(group: list, axis: str, env) -> str:
+    """The step that would put every instance inside the piece, as a number.
+
+    A sofa spent six of eight rounds on this one defect — slats, blocks and braces
+    marching out past the end — because the message said to check the step without
+    ever saying what it should be. Telling the loop the count fixed the span
+    invariant in one round; this does the same for repeats."""
+    lo, ext = dict(AXES)[axis], dict(AXES)[axis]
+    lo = axis
+    ext = {"x": "w", "y": "d", "z": "h"}[axis]
+    limit = {"x": env[3], "y": env[4], "z": env[5]}[axis]
+    inside = {"x": env[0], "y": env[1], "z": env[2]}[axis]
+    n = len(group)
+    if n < 2:
+        return (f"With one instance there is no step to blame: move it inside by "
+                f"setting box_{lo} so box_{lo} + box_{ext} stays under {limit:.1f}.")
+    first = min(b[lo] for b in group)
+    size = max(b[ext] for b in group)
+    travel = (limit - size) - first
+    if travel <= 0:
+        return (f"Even the first instance does not fit: box_{lo}={first:.2f} plus "
+                f"box_{ext}={size:.2f} is past {limit:.1f}. Start it inside the piece.")
+    step = travel / (n - 1)
+    if step < size - 0.02:
+        # The arithmetic has an answer here but it is not advice worth taking:
+        # spacing them that closely would overlap them. They do not go side by side
+        # on this axis at all.
+        return (f"{n} instances of a part {size:.2f}in across do not fit along {lo} "
+                f"between {first:.2f} and {limit:.1f} — spacing them to fit would "
+                f"overlap them. Either they repeat on a different axis (shelves go up "
+                f"in z, not across in x), or there are too many of them for the space.")
+    return (f"For {n} instances starting at box_{lo}={first:.2f}, the last one must "
+            f"end at {limit:.1f}, so step_{lo} = {step:.3f} — the travel "
+            f"({travel:.2f}in) divided by {n - 1} gap(s), NOT the full width of the "
+            f"piece. Set step_{lo}={step:.3f} and leave box_{lo} where it is.")
