@@ -25,6 +25,7 @@ from .model import joint_roles
 
 W = 520.0
 MARGIN = 60.0
+LEGEND_SIZE = 7.5
 AXES = {"x": ("x", "w"), "y": ("y", "d"), "z": ("z", "h")}
 
 
@@ -69,6 +70,26 @@ def _fit(labels: list[str], base=9.0, maxw: float | None = None) -> tuple[float,
 
 def _clip(s: str, cap: int) -> str:
     return s if len(s) <= cap else s[: max(1, cap - 1)] + "…"
+
+
+def _wrap(s: str, cap: int, lines: int) -> list[str]:
+    """Break on words into at most ``lines``, each within ``cap`` characters.
+
+    Text that still does not fit is ellipsised on the last line — including a
+    single word longer than the line, which must be cut rather than allowed to run
+    off the canvas and fail the bounds gate.
+    """
+    words, out, cur = s.split(), [], ""
+    for i, word in enumerate(words):
+        trial = f"{cur} {word}".strip()
+        if len(trial) <= cap:
+            cur = trial
+            continue
+        if len(out) + 1 == lines:
+            return out + [_clip(" ".join(words[i - len(cur.split()):]), cap)]
+        out.append(_clip(cur, cap) if cur else _clip(word, cap))
+        cur = "" if not cur else word
+    return (out + [_clip(cur, cap)])[:lines] if cur else out[:lines] or [""]
 
 
 # A section frame is sized to its cut, between these bounds: tall enough for a
@@ -253,15 +274,15 @@ def cross_section(geo: Geometry, axis: str = "x", cut: float | None = None,
     elif plane_name:
         caption += f" · {plane_name}"
     # The designer's reason moved here so it could read whole rather than clip under
-    # the stage badge — but nothing bounded it, and a long one ran off the canvas.
-    # Gate 3 caught it on a live build. Step the type down to fit, then clip.
+    # the stage badge — but a long one still ended "...showing seat deck webbing
+    # support, plinth structure, back fr…", which is the half of the sentence that
+    # says why the plane is there. Two lines at a readable size beat one line
+    # ellipsised: the title sits at y=18, so there is room above the drawing.
     avail = W - MARGIN - 10
     size = 8.5
-    if len(caption) * size * 0.6 > avail:
-        size = max(6.5, avail / (len(caption) * 0.6))
-    cap_chars = max(8, int(avail / (size * 0.6)))
-    c.text(MARGIN, MARGIN - 16, _clip(caption, cap_chars), size=size,
-           anchor="start", color="#a4632e")
+    for line, text in enumerate(_wrap(caption, int(avail / (size * 0.6)), 2)):
+        c.text(MARGIN, MARGIN - 26 + line * 11, text, size=size,
+               anchor="start", color="#a4632e")
     return c
 
 
@@ -615,7 +636,21 @@ def board_layout(nest, sheet_index: int, labels: dict | None = None) -> Canvas:
     # Distinct crosscut positions: cut the board into lengths first, rip after.
     crosscuts = sorted({round(along_of(p)[0] + along_of(p)[1], 3) for p in pieces})
 
-    c = Canvas(W, 62.0 + board_px + 62.0, stage="as_cut",
+    # The piece legend used to be cut at 150 characters, which is not a width: a
+    # board of eight small parts ran the line 77px off both sides of the canvas and
+    # Gate 3 caught it. Wrap it to the real width, and let the canvas grow for the
+    # second line rather than the line grow past the canvas.
+    runs: dict = {}
+    for p in pieces:
+        _, run, _, wide = along_of(p)
+        key = (_piece_label(p.part_id, labels), round(run, 3), round(wide, 3))
+        runs[key] = runs.get(key, 0) + 1
+    legend_lines = _wrap(
+        "  ·  ".join(f"{pid} x{n} @ {fmt_inches(run)} x {fmt_inches(wide)}"
+                     for (pid, run, wide), n in runs.items()),
+        int((W - 24.0) / (LEGEND_SIZE * 0.6)), 2)
+
+    c = Canvas(W, 62.0 + board_px + 56.0 + 11.0 * len(legend_lines), stage="as_cut",
                title=f"{_material_name(nest.material_id)} — board {sheet_index}, "
                      f"{fmt_inches(length)} x {fmt_inches(width)} stock")
     x0, y0 = MARGIN, 56.0
@@ -652,15 +687,9 @@ def board_layout(nest, sheet_index: int, labels: dict | None = None) -> Canvas:
     if crosscuts:
         c.dim_horizontal(x0, x0 + crosscuts[-1] * s, y0 + board_px + 30,
                          fmt_inches(crosscuts[-1]), above=False)
-    runs = {}
-    for p in pieces:
-        a, run, _, wide = along_of(p)
-        key = (_piece_label(p.part_id, labels), round(run, 3), round(wide, 3))
-        runs[key] = runs.get(key, 0) + 1
-    legend = "  ·  ".join(
-        f"{pid} x{n} @ {fmt_inches(run)} x {fmt_inches(wide)}"
-        for (pid, run, wide), n in runs.items())
-    c.text(W / 2, 62.0 + board_px + 52.0, legend[:150], size=7.5, color="#6b655c")
+    for line, text in enumerate(legend_lines):
+        c.text(W / 2, 62.0 + board_px + 46.0 + line * 11.0, text,
+               size=LEGEND_SIZE, color="#6b655c")
     return c
 
 

@@ -351,3 +351,29 @@ def test_a_fastener_through_a_chunky_member_stays_on_the_canvas():
         assert not c.geometry_overflow(), (i, c.geometry_overflow())
         assert not c.overflowing_labels(), (i, c.overflowing_labels())
     print("  [ok] joint details of chunky members stay inside their canvas")
+
+
+def test_a_board_legend_wraps_instead_of_running_off_the_canvas():
+    """The legend under a board layout was cut at 150 characters, which is not a
+    width: a board of eight small parts ran the line 77px off both sides and Gate 3
+    caught it."""
+    from build_assistant.nesting.plan import plan_nesting
+    from build_assistant.generative.document import _stock_diagram
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]],
+            "materials": [{"role": "carcass", "material_id": "hardwood_4_4"},
+                          {"role": "back", "material_id": "hardwood_4_4"}]}
+    base = dict(spec["parts"][2])
+    for i in range(8):                      # many small parts -> a long legend
+        p = dict(base); p["id"] = f"SM{i}"; p["name"] = f"Small part {i}"
+        p["length_expr"] = "9.375"; p["width_expr"] = "3.5"; p["qty_expr"] = "1"
+        p["box_w"] = "9.375"; p["box_d"] = "3.5"; p["box_h"] = "carcass_t"
+        p["box_z"] = str(12 + i * 0.01)
+        spec["parts"].append(p)
+    geo = compile_design(DesignIR.from_dict(spec), check=False)
+    plan = plan_nesting(geo)
+    for mid, nest in plan.nests.items():
+        for i in range(1, nest.sheet_count() + 1):
+            c = _stock_diagram(geo, nest, mid, i)
+            assert not c.overflowing_labels(), (mid, i, c.overflowing_labels())
+            assert not c.geometry_overflow(), (mid, i, c.geometry_overflow())
+    print("  [ok] a long board legend wraps within the canvas")
