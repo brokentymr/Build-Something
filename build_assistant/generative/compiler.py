@@ -17,7 +17,7 @@ from ..core.model import (
 )
 from ..core.invariants import check_invariants
 from .model import DesignIR, THROUGH_JOINTS
-from .evaluator import evaluate, build_symbols
+from .evaluator import evaluate, build_symbols, ExprError
 
 
 def compile_design(ir: DesignIR, check: bool = True) -> Geometry:
@@ -141,7 +141,10 @@ def compile_design(ir: DesignIR, check: bool = True) -> Geometry:
     def _derived_value(d):
         try:
             v = ev(d.value)
-        except Exception:  # noqa: BLE001 — plain prose values pass through unchanged
+        except ExprError:
+            # "left bare" is prose, not arithmetic, and passes through unchanged.
+            # Narrow deliberately: catching everything here would swallow a bug in
+            # this function as quietly as it swallows a sentence.
             return d.value, d.basis
         text = f"{v:g} in" if abs(v) >= 0.01 else f"{v:g}"
         basis = d.basis if d.value in d.basis else f"{d.basis} ({d.value})".strip()
