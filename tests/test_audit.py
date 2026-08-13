@@ -332,19 +332,19 @@ def test_a_part_longer_than_any_board_still_names_the_remedy():
     """Width is solvable by gluing up; length is not."""
     from build_assistant.core.invariants import check_invariants, InvariantError
     spec = {**_CASE, "params": [{"id": "width", "label": "W", "value": 30},
-                                {"id": "height", "label": "H", "value": 130},
+                                {"id": "height", "label": "H", "value": 160},
                                 {"id": "depth", "label": "D", "value": 12}],
             "materials": [{"role": "carcass", "material_id": "hardwood_4_4"},
-                          {"role": "back", "material_id": "ply_025"}]}
+                          {"role": "back", "material_id": "hardwood_4_4"}]}
     geo = compile_design(DesignIR.from_dict(spec), check=False)
     try:
         check_invariants(geo)
     except InvariantError as exc:
         msg = str(exc)
     else:
-        raise AssertionError("a 130in board must not pass the stock check")
+        raise AssertionError("a 160in board must not pass the stock check")
     assert "no glue-up makes a board longer" in msg, msg
-    assert "96in" in msg, "the message must state the real board length"
+    assert "144in" in msg, "the message must state the real board length"
     print("  [ok] a part longer than any board names the remedy")
 
 

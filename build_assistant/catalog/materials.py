@@ -182,11 +182,15 @@ for _q, _act in [("4_4", 0.8125), ("5_4", 1.0625), ("6_4", 1.3125), ("8_4", 1.81
         nominal_thickness=float(_q.split('_')[0]) / 4.0,
         actual_thickness=_act,
         actual_tolerance=0.03,
-        stock_sizes=(StockSize(8, 96),),
+        # A hardwood dealer sells boards by the board foot in random widths and
+        # lengths; 8ft was the only length here, which quietly made anything wider
+        # than a 7ft sofa unbuildable in solid wood. 10 and 12ft are ordinary.
+        stock_sizes=(StockSize(8, 96), StockSize(8, 120), StockSize(8, 144)),
         grain_direction="length",
         requires_backing=False,
         density_lb_per_cuft=45.0,
-        notes="Surfaced two sides; actual is post-planing.",
+        notes="Surfaced two sides; actual is post-planing. Sold in random widths — "
+              "8in is a fair planning width; wider panels are edge-glued.",
     ))
 
 
