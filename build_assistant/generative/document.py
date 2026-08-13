@@ -177,7 +177,13 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
     B("h_spec", "header", _h("Design specification", "finished dimensions"))
     if packet.get("governing_note"):
         B("govnote", "prose", f'<div class="agent-note"><p>{_e(_human(packet["governing_note"], geo))}</p></div>')
-    B("spec", "table", _param_table(geo))
+    # same reason the cut list is chunked: one table is one block, and a design
+    # with forty parameters would overflow a page it cannot be split across
+    for n, chunk in enumerate(_chunks([[_e(pp.label),
+                                        fmt_inches(pp.value) if pp.unit == "in"
+                                        else f"{pp.value:g} {pp.unit}"]
+                                       for pp in _param_list(geo)], 26)):
+        B(f"spec{n}", "table", _table(["Parameter", "Value"], chunk))
     # A curated node derives a spec of its own — deck sizes, ring width, rib count,
     # the two plinth heights — that the generic parameter table has no slot for.
     for i, extra in enumerate(packet.get("extra_sections") or []):
@@ -308,7 +314,8 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
     B("h_rec", "header", _h("Design record", "inputs that generated this packet"))
     rec = [[_e(p.label), fmt_inches(p.value) if p.unit == "in" else f"{p.value:g} {p.unit}",
             _e(p.source)] for p in _param_list(geo)]
-    B("rec", "table", _table(["Parameter", "Value", "Source"], rec))
+    for n, chunk in enumerate(_chunks(rec, 26)):
+        B(f"rec{n}", "table", _table(["Parameter", "Value", "Source"], chunk))
 
     return blocks
 
@@ -402,12 +409,6 @@ def _finish_name(geo: Geometry) -> str:
         return get_finish(geo.finish_id).display_name
     except Exception:  # noqa: BLE001
         return geo.finish_id.replace("_", " ")
-
-
-def _param_table(geo: Geometry) -> str:
-    rows = [[_e(p.label), fmt_inches(p.value) if p.unit == "in" else f"{p.value:g} {p.unit}"]
-            for p in _param_list(geo)]
-    return _table(["Parameter", "Value"], rows)
 
 
 def _param_list(geo: Geometry):
