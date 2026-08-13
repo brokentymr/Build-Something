@@ -289,7 +289,12 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
         known = {p.id for p in geo.parts}
         done: set = set()
         for i, st in enumerate(steps, 1):
-            now = [pid for pid in (st.get("parts") or []) if pid in known]
+            # A writer that puts one id as a bare string rather than a list is
+            # taken at its word; iterating it as characters would silently draw
+            # nothing, which looks the same as a step that fits nothing.
+            listed = st.get("parts") or []
+            listed = [listed] if isinstance(listed, str) else listed
+            now = [pid for pid in listed if pid in known]
             view = None
             if now:
                 canvas = gdraw.step_view(geo, now, done, "")
