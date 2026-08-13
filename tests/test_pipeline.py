@@ -206,6 +206,12 @@ def test_a_failed_design_says_something_a_person_can_act_on():
     assert "second run" in msg, msg
     stock = _plain_failure("InvariantError: part D (30.0x130.0) fits no stock size")
     assert "stock that is actually sold" in stock, stock
+    # a gate hold is its own case: the package exists but Law 5 refuses to ship it
+    gate = _plain_failure("held back by a release check — Gate 3: 1 visual defect(s) "
+                          "(joint_d2: geometry (71.1, 57.0, 306.0, 618.7) exceeds "
+                          "viewBox 520.0x260.0)")
+    assert "viewBox" not in gate and "618.7" not in gate, gate
+    assert "not released" in gate, gate
     # anything unrecognised still reaches the user rather than being swallowed
     odd = _plain_failure("sqlite3.OperationalError: database is locked")
     assert "database is locked" in odd, odd

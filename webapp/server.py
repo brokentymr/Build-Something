@@ -361,6 +361,15 @@ def _plain_failure(err: str) -> str:
     engine keeps its own words in the log; this is the sentence on the screen, and
     it has to say what happened and what is worth doing about it."""
     e = err.lower()
+    if "held back by a release check" in e:
+        # Law 5: no document releases with a failing gate, and there is no override.
+        # The gate's own words are coordinates — "geometry (71.1, 57.0, 306.0,
+        # 618.7) exceeds viewBox 520.0x260.0" — which say nothing to the person
+        # who asked for a firewood rack.
+        return ("The package was finished but one of the final checks did not pass, "
+                "so it was not released — a drawing or a number would not have been "
+                "right. Nothing part-finished is ever handed over. Running it again "
+                "draws the design fresh and usually clears it.")
     if "did not resolve" in e or "placementerror" in e:
         return ("The design did not come together — the parts would not fit into a "
                 "sound assembly within the time budgeted. This one often works on a "
