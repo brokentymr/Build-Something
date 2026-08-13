@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
@@ -35,6 +36,15 @@ MAX_ROUNDS = int(os.environ.get("DESIGN_MAX_ROUNDS", "8"))
 #: Hard ceiling on a single reply, so a runaway design fails loudly
 #: instead of doubling forever.
 MAX_TOKENS_CEILING = int(os.environ.get("DESIGN_MAX_TOKENS", "24000"))
+
+
+def _api_message(err) -> str:
+    """The API's own words for a failed call, not urllib's summary of the status."""
+    try:
+        body = json.loads(err.read())
+        return str(body.get("error", {}).get("message") or body)[:300]
+    except Exception:  # noqa: BLE001 — a body we cannot read is not a second failure
+        return err.reason if getattr(err, "reason", None) else "no detail"
 
 
 def _fmt(v: float) -> str:
@@ -81,8 +91,15 @@ class DesignAgent:
         # minutes, and the round was lost to a read timeout. Give a reply time in
         # proportion to how much of it we asked for.
         timeout = min(600.0, max(120.0, max_tokens * 0.035))
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            data = json.loads(r.read())
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                data = json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            # urllib's HTTPError stringifies as "HTTP Error 400: Bad Request" and
+            # drops the body, where the API says what is actually wrong. An
+            # exhausted account reached a user as "this design did not come
+            # together" -- blaming a design that was never attempted.
+            raise RuntimeError(f"api {e.code}: {_api_message(e)}") from None
         # Why the model stopped matters. A reply cut off at the token ceiling is
         # not malformed JSON, and treating it as such sent the retry to ask for
         # valid JSON when what it needed was more room.

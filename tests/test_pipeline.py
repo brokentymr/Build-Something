@@ -265,3 +265,37 @@ def test_a_released_project_can_have_a_number_changed_and_be_rebuilt():
     # a choice is not offered as a free-text number to retype
     assert not by["Wood Species"]["numeric"]
     print("  [ok] answers carry their field and type, so a number can be changed")
+
+
+def test_an_account_problem_is_not_reported_as_a_design_problem():
+    """When the API key ran out of credit, every request came back as urllib's
+    "HTTP Error 400: Bad Request" — the body saying why was dropped — and the app
+    told the user their design did not come together. It sent them to change
+    answers that were never at fault, about a design never attempted."""
+    from webapp.server import _plain_failure
+    out_of_credit = _plain_failure(
+        "question planning failed: api 400: Your credit balance is too low to "
+        "access the Anthropic API. Please go to Plans & Billing to upgrade.")
+    assert "out of credit" in out_of_credit, out_of_credit
+    assert "not a problem with your build" in out_of_credit
+    assert "did not come together" not in out_of_credit
+    assert "rejected its API key" in _plain_failure("api 401: invalid x-api-key")
+    assert "busy right now" in _plain_failure("api 429: rate limit exceeded")
+    # a real design failure still reads as one
+    assert "did not come together" in _plain_failure(
+        "the design did not resolve — PlacementError: part P03 floats free")
+    print("  [ok] an account failure reads as an account failure, not a bad design")
+
+
+def test_the_api_error_carries_the_service_s_own_words():
+    """urllib stringifies an HTTPError as its status line and drops the body, so
+    the reason the call failed never left the network layer."""
+    import io, json, urllib.error
+    from webapp.designer import _api_message
+    body = json.dumps({"error": {"message": "Your credit balance is too low"}}).encode()
+    err = urllib.error.HTTPError("u", 400, "Bad Request", {}, io.BytesIO(body))
+    assert "credit balance is too low" in _api_message(err)
+    # an unreadable body must not become a second failure
+    blank = urllib.error.HTTPError("u", 500, "Server Error", {}, io.BytesIO(b"<html>"))
+    assert _api_message(blank)
+    print("  [ok] a failed API call reports what the service actually said")

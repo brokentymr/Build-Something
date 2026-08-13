@@ -361,6 +361,23 @@ def _plain_failure(err: str) -> str:
     engine keeps its own words in the log; this is the sentence on the screen, and
     it has to say what happened and what is worth doing about it."""
     e = err.lower()
+    # An account problem is not a design problem, and saying "this one did not
+    # come together" about a design the engine never got to attempt sends someone
+    # to change answers that were never at fault.
+    if "credit balance" in e or "quota" in e or "billing" in e:
+        return ("The design service is out of credit, so nothing could be drawn. "
+                "This is an account problem, not a problem with your build — top "
+                "up the Anthropic API key and it will run as before.")
+    if "authentication" in e or "api 401" in e or "invalid x-api-key" in e:
+        return ("The design service rejected its API key, so nothing could be "
+                "drawn. Check the key the server was started with; your build is "
+                "untouched.")
+    if "rate limit" in e or "api 429" in e or "overloaded" in e or "api 529" in e:
+        return ("The design service is busy right now and turned the request away. "
+                "Nothing is wrong with your build — wait a minute and try again.")
+    if e.startswith("api ") or "api 4" in e or "api 5" in e:
+        return ("The design service could not be reached, so nothing could be "
+                "drawn. Your build is untouched; try again shortly.")
     if "held back by a release check" in e:
         # Law 5: no document releases with a failing gate, and there is no override.
         # The gate's own words are coordinates — "geometry (71.1, 57.0, 306.0,
