@@ -309,7 +309,7 @@ def test_the_loop_actually_reaches_a_repair_round():
                                       "buildable": True}
     repairs = []
 
-    def repair(ir, issues, error, photos=None):
+    def repair(ir, issues, error, photos=None, settled=None):
         repairs.append(photos)
         return DesignIR.from_dict(_CASE)          # the sound version
 
@@ -340,7 +340,7 @@ def test_one_failed_repair_does_not_end_the_design():
                                       "buildable": True}
     calls = []
 
-    def repair(ir, issues, error, photos=None):
+    def repair(ir, issues, error, photos=None, settled=None):
         calls.append(len(calls))
         if len(calls) == 1:
             raise TimeoutError("The read operation timed out")
@@ -359,3 +359,52 @@ def test_a_bigger_reply_is_given_longer_to_arrive():
     large = min(600.0, max(120.0, 10000 * 0.035))
     assert large > small and large >= 300
     print(f"  [ok] reply timeout scales with the budget ({small:.0f}s -> {large:.0f}s)")
+
+
+def test_the_repair_is_told_what_earlier_rounds_settled():
+    """The sofa spent five rounds trading one defect for the next — 38 parts, 49,
+    67, 57 — because each repair saw only the current complaint and quietly undid
+    what the round before had fixed."""
+    from webapp.designer import DesignAgent
+    from build_assistant.generative.model import DesignIR
+    from tests.test_details import _CASE
+
+    floating = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in floating["parts"]:
+        if p["id"] == "C":
+            p["box_z"] = "200"                      # shelf floating in air
+
+    stepped = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in stepped["parts"]:
+        if p["id"] == "C":
+            p.update({"qty_expr": "6", "step_x": "15.65", "step_z": "0"})
+
+    agent = DesignAgent()
+    agent.synthesize = lambda *a, **k: DesignIR.from_dict(floating)
+    agent.critique = lambda *a, **k: {"issues": [], "buildable": True}
+    seen = []
+    drafts = [DesignIR.from_dict(stepped), DesignIR.from_dict(_CASE)]
+
+    def repair(ir, issues, error, photos=None, settled=None):
+        seen.append(list(settled or []))
+        return drafts.pop(0)
+
+    agent.repair = repair
+    agent.design("a case", {}, max_rounds=3)
+    assert seen[0] == [], "nothing is settled on the first repair"
+    assert seen[1], "the second repair must know the floating shelf was settled"
+    assert any("touching nothing" in s for s in seen[1]), seen[1]
+    print(f"  [ok] the repair is told what is already settled ({seen[1][0][:44]}…)")
+
+
+def test_every_defect_reaches_the_repair_not_the_first_four():
+    from webapp.designer import DesignAgent
+    from build_assistant.generative.model import DesignIR
+    from tests.test_details import _CASE
+    spec = {**_CASE, "parts": [dict(p) for p in _CASE["parts"]]}
+    for p in spec["parts"]:                          # several defects at once
+        p["box_z"] = {"A": "200", "B": "300", "C": "400", "D": "500"}[p["id"]]
+    agent = DesignAgent()
+    _, error = agent._try_compile(DesignIR.from_dict(spec))
+    assert error.count("|") >= 3, f"only {error.count('|')+1} defect(s) reached the repair"
+    print(f"  [ok] {error.count('|')+1} defects travel to the repair together")

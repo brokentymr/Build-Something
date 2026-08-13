@@ -30,7 +30,8 @@ from build_assistant.core.invariants import InvariantError
 from build_assistant.generative.evaluator import ExprError
 
 MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
-MAX_ROUNDS = int(os.environ.get("DESIGN_MAX_ROUNDS", "5"))
+#: A 49-part sofa frame does not settle in five rounds; a bookcase does in one.
+MAX_ROUNDS = int(os.environ.get("DESIGN_MAX_ROUNDS", "8"))
 #: Hard ceiling on a single reply, so a runaway design fails loudly
 #: instead of doubling forever.
 MAX_TOKENS_CEILING = int(os.environ.get("DESIGN_MAX_TOKENS", "24000"))
@@ -241,7 +242,7 @@ Keep it genuinely buildable."""
 
     # ---------------------------------------------------------------- repair
     def repair(self, ir: DesignIR, issues: list, error: str,
-               photos: list | None = None) -> DesignIR:
+               photos: list | None = None, settled: list | None = None) -> DesignIR:
         system = ("You revise a parametric build model to fix the listed problems. Keep the "
                   "same JSON shape. Change only what's needed. The engine computes numbers "
                   "from your formulas.")
@@ -249,7 +250,11 @@ Keep it genuinely buildable."""
                 f"Current model:\n{json.dumps(ir.to_dict())}\n\n"
                 f"Engine error: {error or 'none'}\n"
                 f"Issues to fix: {json.dumps(issues)}\n"
-                "Return the full corrected DesignIR JSON only.")
+                "Fix ALL of them in this one revision — they are checked together, and "
+                "a revision that trades one for another makes no progress.\n"
+                + (f"Already settled in earlier rounds, do NOT reintroduce: "
+                   f"{json.dumps(settled[:8])}\n" if settled else "")
+                + "Return the full corrected DesignIR JSON only.")
         # the reference photos ride along, so a repair does not drift away from
         # the piece the user showed us while it is fixing something else
         return DesignIR.from_dict(self._llm_json(system, user, 10000, images=photos))
@@ -434,6 +439,9 @@ Keep it genuinely buildable."""
         # at round 2 and broke again at round 3, then spent its budget getting back.
         # Keep the best model seen and never end worse than it.
         best = (self._defect_count(geo, error), ir, geo, error)
+        # Defects seen in an earlier round and absent now are settled; naming them
+        # back to the repair is what stops it undoing its own work.
+        seen_defects, settled = set(_defect_keys(error)), []
 
         for r in range(1, max_rounds + 1):
             say("reviewing", f"round {r} of {max_rounds} — checking the design holds up")
@@ -453,7 +461,7 @@ Keep it genuinely buildable."""
             say("repairing", _repair_note(r, max_rounds, error, issues))
             try:
                 ir = self.repair(ir, issues or [{"what": error, "fix_hint": "make it compile"}],
-                                 error, photos=photos)
+                                 error, photos=photos, settled=settled)
             except Exception as exc:  # noqa: BLE001
                 # One repair that fell over — a timeout, a malformed reply — is not
                 # the end of the design. Ending the loop here threw away three
@@ -461,6 +469,11 @@ Keep it genuinely buildable."""
                 trail.append({"round": r, "action": "repair_failed", "error": str(exc)})
                 continue
             geo, error = self._try_compile(ir)
+            now = set(_defect_keys(error))
+            for gone in seen_defects - now:
+                if gone not in settled:
+                    settled.append(gone)
+            seen_defects |= now
             trail.append({"round": r, "action": "repair", "error": error,
                           "parts": geo.piece_count() if geo else 0})
             score = self._defect_count(geo, error)
@@ -514,7 +527,10 @@ Keep it genuinely buildable."""
         from build_assistant.generative.audit import audit_placement
         issues = audit_placement(geo)
         if issues:
-            return geo, "PlacementError: " + " | ".join(issues[:4])
+            # All of them. Showing four meant a repair fixed those four and quietly
+            # undid others, and the loop spent five rounds trading one defect for
+            # the next: 38 parts, then 49, then 67, then 57, never converging.
+            return geo, "PlacementError: " + " | ".join(issues[:12])
         return geo, ""
 
 
@@ -606,3 +622,22 @@ def _repair_note(round_no: int, total: int, error: str, issues: list) -> str:
     if high:
         return f"round {round_no}: {str(high[0])[:70]}"
     return f"round {round_no} of {total}: refining the design"
+
+
+def _defect_keys(error: str) -> list:
+    """Short, number-free names for the defects in an engine error.
+
+    Used to tell a repair what earlier rounds already settled, so it stops
+    reintroducing them. Numbers are stripped because the same defect reappears
+    with different measurements."""
+    import re
+    if not error:
+        return []
+    body = error.split(":", 1)[1] if ":" in error else error
+    keys = []
+    for part in body.split("|"):
+        text = re.sub(r"[-\d.]+in|\d+\.\d+|\b\d+\b", "", part).strip()
+        text = re.sub(r"\s+", " ", text)[:80]
+        if len(text) > 12:
+            keys.append(text)
+    return keys
