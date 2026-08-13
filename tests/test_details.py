@@ -377,3 +377,41 @@ def test_a_board_legend_wraps_instead_of_running_off_the_canvas():
             assert not c.overflowing_labels(), (mid, i, c.overflowing_labels())
             assert not c.geometry_overflow(), (mid, i, c.geometry_overflow())
     print("  [ok] a long board legend wraps within the canvas")
+
+
+def test_the_packet_shows_the_finished_piece_not_only_how_it_comes_apart():
+    """A packet full of exploded views, sections and cut lists never actually
+    showed the thing being built. The finished view is what someone checks against
+    when deciding whether the design is what they had in mind."""
+    from build_assistant.generative.draw import assembled, hero_drawings
+    geo = _geo()
+    a = assembled(geo)
+    assert a is not None
+    assert not a.geometry_overflow() and not a.overflowing_labels()
+    svg = a.render()
+    # no balloons and no legend: it is a picture, not a key
+    assert "Left side" not in svg and "left side" not in svg
+    hero = hero_drawings(geo)
+    assert "assembled" in hero and "exploded" in hero, sorted(hero)
+    print("  [ok] the finished piece is drawn, alongside the exploded assembly")
+
+
+def test_each_assembly_step_can_show_what_goes_on_now():
+    """Reading 'attach the seat rails to the leg posts' is not the same as seeing
+    which four sticks those are. Parts already fitted draw pale, the parts this
+    step adds draw solid and ballooned, and nothing later is drawn at all."""
+    from build_assistant.generative.draw import step_view, item_numbers
+    geo = _geo()
+    ids = [p.id for p in geo.parts]
+    first = step_view(geo, ids[:1], [], "")
+    later = step_view(geo, ids[2:3], ids[:2], "")
+    assert first is not None and later is not None
+    for c in (first, later):
+        assert not c.geometry_overflow() and not c.overflowing_labels()
+    nums = item_numbers(geo)
+    # the step balloons only what it adds, not what is already standing
+    assert f">{nums[ids[2]]}<" in later.render()
+    assert f">{nums[ids[0]]}<" not in later.render()
+    # a step that fits nothing gets no picture rather than an empty frame
+    assert step_view(geo, [], ids[:2], "") is None
+    print("  [ok] a step draws what is standing, and picks out what goes on now")

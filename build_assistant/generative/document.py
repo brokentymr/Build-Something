@@ -190,7 +190,7 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
         if extra.get("where") == "spec" and extra.get("html"):
             B(f"s_h{i}", "header", _h(extra.get("title", ""), extra.get("kicker", "")))
             B(f"s_b{i}", extra.get("kind", "table"), extra["html"])
-    for k in ("plan", "front_elevation", "side_elevation"):
+    for k in ("exploded", "plan", "front_elevation", "side_elevation"):
         if k in hero:
             B(f"fig_{k}", "figure", _svg(hero[k]))
 
@@ -286,8 +286,19 @@ def build_blocks_generic(geo: Geometry, plan: NestingPlan, packet: dict | None =
     steps = packet.get("steps") or []
     if steps:
         B("h_seq", "header", _h("Build sequence", f"{len(steps)} steps"))
+        known = {p.id for p in geo.parts}
+        done: set = set()
         for i, st in enumerate(steps, 1):
-            B(f"step_{i}", "step", _step(i, st, geo))
+            now = [pid for pid in (st.get("parts") or []) if pid in known]
+            view = None
+            if now:
+                canvas = gdraw.step_view(geo, now, done, "")
+                # No title, no stage badge, no caption: the step number and phase
+                # are two inches to the left, and a thumbnail repeating them is
+                # furniture, not information.
+                view = canvas.render() if canvas else None
+                done |= set(now)
+            B(f"step_{i}", "step", _step(i, st, geo, view))
 
     # ---------- CURE SCHEDULE ----------
     # ---------- node-specific sections ----------
@@ -373,7 +384,11 @@ def _cover(geo, plan, hero, kind, title, subtitle, meta, packet) -> str:
         cells = "".join(f'<div class="callout crit"><span class="ct">{_e(_human(c.get("title",""), geo))}</span>'
                         f'<p>{_e(_human(c.get("body",""), geo))}</p></div>' for c in packet["callouts"][:3])
         calls = f'<div class="callouts">{cells}</div>'
-    exploded = _svg(hero["exploded"]) if "exploded" in hero else ""
+    # The cover shows what you are building. The exploded view is how it comes
+    # apart, which is the next question, not the first one — it moves to the
+    # specification section behind this page.
+    figure = _svg(hero["assembled"]) if "assembled" in hero else (
+        _svg(hero["exploded"]) if "exploded" in hero else "")
     return f"""
     <div class="cover">
       <div class="revtag">Build packet / Rev A</div>
@@ -386,7 +401,7 @@ def _cover(geo, plan, hero, kind, title, subtitle, meta, packet) -> str:
         </div>
         <div class="specchips">{chiprows}</div>
       </div>
-      {exploded}
+      {figure}
       {calls}
     </div>"""
 
@@ -426,16 +441,23 @@ def _param_list(geo: Geometry):
     return out
 
 
-def _step(i: int, st: dict, geo=None) -> str:
+def _step(i: int, st: dict, geo=None, view=None) -> str:
     chips = "".join(f'<span class="chip tool">{_e(x)}</span>' for x in st.get("tools", []))
     chips += "".join(f'<span class="chip fast">{_e(x)}</span>' for x in st.get("fasteners", []))
     check = f'<div class="stepsign">&#9744; {_e(_human(st.get("check",""), geo) if geo else st.get("check",""))}<span class="ts">time: ____</span></div>' \
         if st.get("check") else ""
+    # A step that fits parts gets a picture of the assembly as it stands at that
+    # point, with what is going on now picked out. Reading "attach the seat rails
+    # to the leg posts" is not the same as seeing which four sticks those are.
+    # The picture sits beside the words, not under them. Full width it took a page
+    # per step, which is not a build sequence, it is a slideshow.
+    art = f'<div class="stepart">{view}</div>' if view else ""
     return f"""<div class="step"><div class="stephead">
       <span class="stepn">{i:02d}</span><span class="stepphase">{_e(st.get('phase',''))}</span>
       <span class="steptitle">{_e(_human(st.get('title',''), geo) if geo else st.get('title',''))}</span></div>
-      <div class="stepdetail">{_e(_human(st.get('detail',''), geo) if geo else st.get('detail',''))}</div>
-      <div class="chips">{chips}</div>{check}</div>"""
+      <div class="stepbody"><div class="steptext">
+        <div class="stepdetail">{_e(_human(st.get('detail',''), geo) if geo else st.get('detail',''))}</div>
+        <div class="chips">{chips}</div>{check}</div>{art}</div></div>"""
 
 
 def build_generic_document(geo: Geometry, plan: NestingPlan, packet: dict,

@@ -298,7 +298,8 @@ Keep it genuinely buildable."""
                 "required": ["title", "detail"], "properties": {
                     "phase": {"type": "string"}, "title": {"type": "string"},
                     "detail": {"type": "string"}, "tools": {"type": "array"},
-                    "fasteners": {"type": "array"}, "check": {"type": "string"}}}},
+                    "fasteners": {"type": "array"}, "check": {"type": "string"},
+                    "parts": {"type": "array", "items": {"type": "string"}}}}},
             "cure": {"type": "array"}, "care": {"type": "string"},
         },
     }
@@ -355,7 +356,10 @@ Keep it genuinely buildable."""
             ' "tolerances": [{"check","tolerance"}] 4-6 rows,\n'
             ' "steps": [10-18 ordered {"phase","title","detail","tools":[],"fasteners":[],"check"}] '
             'grouped by phase (Prep, Cut, Joinery, Assemble, Finish...), each detail 1-2 sentences '
-            'saying HOW and WHY, with a concrete sign-off check,\n'
+            'saying HOW and WHY, with a concrete sign-off check. `parts` is what makes the step '
+            'illustration: the engine draws the assembly as it stands at that point with those '
+            'parts picked out, so list exactly the part ids being fitted, and let them accumulate '
+            'in assembly order across the sequence — a cutting or sanding step lists none,\n'
             ' "cure": [{"stage","wait","note"}] if there is a finish/glue wait, else [],\n'
             ' "care": one paragraph on care and maintenance}\n'
             "Return ONLY the JSON.")

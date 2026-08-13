@@ -98,6 +98,11 @@ table.grid.strong td:last-child {{ font-weight:700; }}
 
 /* build steps */
 .step {{ border-top: 1.5px solid #17150f; padding: 10px 0 12px; margin: 0; }}
+.stepbody {{ display:flex; gap:14px; align-items:flex-start; }}
+.steptext {{ flex:1; min-width:0; }}
+.stepart {{ flex:0 0 250px; margin:6px 0 2px; background:#fbfaf7;
+  border:1px solid #ece7dd; border-radius:3px; padding:2px 4px; }}
+.stepart svg {{ display:block; width:100%; height:auto; }}
 .stephead {{ display: flex; align-items: baseline; gap: 10px; }}
 .stepn {{ font-family:"SF Mono",Menlo,monospace; font-size:22px; font-weight:800; color:#d8d1c4;
   line-height:1; flex:0 0 auto; min-width:30px; }}

@@ -145,6 +145,11 @@ def exploded(geo: Geometry) -> Canvas:
       buried in the middle, and relative order is never scrambled.
     * **Parts are keyed by balloon to a legend**, so labels cannot crowd.
     """
+    return _isometric(geo, _exploded_offsets(geo), "Exploded assembly")
+
+
+def _exploded_offsets(geo: Geometry) -> list[dict]:
+    """Each part slid out along its own thin axis, away from the middle."""
     boxes = geo.structure["boxes"]
     minx, miny, minz, maxx, maxy, maxz = _bbox(boxes)
     mid = {"x": (minx + maxx) / 2, "y": (miny + maxy) / 2, "z": (minz + maxz) / 2}
@@ -170,6 +175,25 @@ def exploded(geo: Geometry) -> Canvas:
                 off = {"x": 0.0, "y": 0.0, "z": 0.0}
                 off[axis] = direction * gap * (1 + rank)
                 placed.append({**b, "ox": off["x"], "oy": off["y"], "oz": off["z"]})
+    return placed
+
+
+def _isometric(geo: Geometry, placed: list[dict], title: str, *,
+               balloons: bool = True, legend: bool = True, draw_h: float = 350.0,
+               only: set | None = None, highlight: set | None = None,
+               stage: str = "as_finished") -> Canvas:
+    """Draw a set of positioned boxes as an isometric.
+
+    Shared by every 3D view in the packet, because they differ only in where the
+    parts sit and how much of the apparatus they carry: the exploded assembly
+    slides parts apart and balloons them, the finished view puts them where they
+    belong with nothing on top, and a build step shows what is standing so far
+    with the parts going on now picked out.
+    """
+    if only is not None:
+        placed = [b for b in placed if b["id"] in only]
+    if not placed:
+        return None
 
     def isopt(x, y, z, s, oxp, oyp):
         # y is negated: increasing depth recedes up-and-right, as it should
@@ -188,7 +212,8 @@ def exploded(geo: Geometry) -> Canvas:
 
     names = {p.id: p.name for p in geo.parts}
     qty = {p.id: p.qty for p in geo.parts}
-    ids = [p.id for p in geo.parts]
+    drawn_ids = {b["id"] for b in placed}
+    ids = [p.id for p in geo.parts if p.id in drawn_ids]
     # Balloons carry an ITEM NUMBER, not the part id — ids can be long words and
     # would burst the balloon. The same number keys the legend and the cut list.
     item_no = item_numbers(geo)
@@ -197,15 +222,14 @@ def exploded(geo: Geometry) -> Canvas:
     longest = max((len(t) for t in legend_text.values()), default=1)
     cols = 3 if (len(ids) > 8 and longest <= 26) else (2 if longest <= 42 else 1)
     rows_n = -(-len(ids) // cols)
-    legend_h = 26.0 + rows_n * 13.0
-    draw_h = 350.0
+    legend_h = (26.0 + rows_n * 13.0) if legend else 12.0
     hgt = draw_h + legend_h
 
     pad = 30.0
     s = min((W - 2 * pad) / (maxsx - minsx), (draw_h - 2 * pad) / (maxsy - minsy))
     oxp = pad - minsx * s + (W - 2 * pad - (maxsx - minsx) * s) / 2
     oyp = pad - minsy * s
-    c = Canvas(W, hgt, title="Exploded assembly", stage="as_finished")
+    c = Canvas(W, hgt, title=title, stage=stage)
 
     # Painter's order: far and low first. With depth toward -y and +x, closeness
     # rises with (x - y + z), so ascending draws the back of the piece first.
@@ -222,16 +246,30 @@ def exploded(geo: Geometry) -> Canvas:
         top = [P(x, y, z + h), P(x + w, y, z + h), P(x + w, y + d, z + h), P(x, y + d, z + h)]
         front = [P(x, y, z), P(x + w, y, z), P(x + w, y, z + h), P(x, y, z + h)]
         right = [P(x + w, y, z), P(x + w, y + d, z), P(x + w, y + d, z + h), P(x + w, y, z + h)]
-        sh = _SHADES[i % len(_SHADES)]
-        c.polygon(top, fill=_lighten(sh), sw=0.8)
-        c.polygon(front, fill=sh, sw=0.8)
-        c.polygon(right, fill=_darken(sh, 0.88), sw=0.8)
+        if highlight is not None and b["id"] not in highlight:
+            # Already built: present, so the new parts have something to land on,
+            # but drawn back — near-white with a hairline, so the eye goes to what
+            # this step actually adds.
+            for face, fill in ((top, "#fcfbf9"), (front, "#f7f5f0"), (right, "#f2efe9")):
+                c.polygon(face, fill=fill, stroke="#c9c3b8", sw=0.5)
+        elif highlight is not None:
+            # The parts going on NOW, when there is a distinction to draw: a warmer
+            # tone than the pale carcass shades, which reads in print and in
+            # greyscale alike.
+            for face, fill in ((top, "#f0e2cc"), (front, "#e2caa4"), (right, "#cfb387")):
+                c.polygon(face, fill=fill, stroke="#5d5347", sw=1.0)
+        else:
+            sh = _SHADES[i % len(_SHADES)]
+            c.polygon(top, fill=_lighten(sh), sw=0.8)
+            c.polygon(front, fill=sh, sw=0.8)
+            c.polygon(right, fill=_darken(sh, 0.88), sw=0.8)
         anchors[b["id"]] = P(x + w / 2, y + d / 2, z + h / 2)
 
     # Balloons key each part to the legend. Small parts cluster, so relax the
     # balloon positions apart and tie any that had to move back to their part with
     # a short leader — a balloon never sits on top of another balloon.
-    pos = {pid: [p[0], p[1]] for pid, p in anchors.items()}
+    ballooned = [pid for pid in ids if highlight is None or pid in highlight]
+    pos = {pid: [p[0], p[1]] for pid, p in anchors.items() if pid in ballooned}
     r = 8.5
     for _ in range(60):
         moved = False
@@ -250,7 +288,9 @@ def exploded(geo: Geometry) -> Canvas:
                     moved = True
         if not moved:
             break
-    for pid, (ax, ay) in anchors.items():
+    for pid, (ax, ay) in (anchors.items() if balloons else []):
+        if pid not in pos:
+            continue
         bx, by = pos[pid]
         bx = min(max(bx, r + 2), W - r - 2)
         by = min(max(by, r + 16), draw_h - r - 2)
@@ -259,6 +299,8 @@ def exploded(geo: Geometry) -> Canvas:
         c.balloon(bx, by, str(item_no.get(pid, "?")))
 
     # legend grid beneath the view
+    if not legend:
+        return c
     ly0 = draw_h + 12.0
     c.line(pad, ly0 - 8, W - pad, ly0 - 8, 0.8, color="#17150f")
     colw = (W - 2 * pad) / cols
@@ -273,6 +315,40 @@ def exploded(geo: Geometry) -> Canvas:
             label = label[: max(1, maxchars - 1)] + "…"
         c.text(lx + 16, ty, label, size=7.6, anchor="start", color="#3a352c")
     return c
+
+
+def assembled(geo: Geometry) -> Canvas | None:
+    """The finished piece, in one picture.
+
+    A packet full of exploded views, sections and cut lists never actually showed
+    the thing being built. This is the view someone checks against when they are
+    deciding whether the design is what they had in mind — no balloons, no legend,
+    nothing to read: the object, standing up.
+    """
+    boxes = geo.structure.get("boxes") or []
+    if not boxes:
+        return None
+    placed = [{**b, "ox": 0.0, "oy": 0.0, "oz": 0.0} for b in boxes]
+    return _isometric(geo, placed, "The finished piece",
+                      balloons=False, legend=False, draw_h=330.0)
+
+
+def step_view(geo: Geometry, part_ids, done_ids, title: str) -> Canvas | None:
+    """What the assembly looks like at one step: what is standing, and what goes on.
+
+    Parts already fitted are drawn pale, the parts this step adds are drawn solid
+    and ballooned to their item numbers, and nothing later is drawn at all — so
+    the picture answers "what am I holding and where does it go".
+    """
+    boxes = geo.structure.get("boxes") or []
+    now = {pid for pid in part_ids if pid}
+    before = {pid for pid in done_ids if pid} - now
+    if not now:
+        return None
+    placed = [{**b, "ox": 0.0, "oy": 0.0, "oz": 0.0} for b in boxes]
+    return _isometric(geo, placed, title, balloons=True, legend=False,
+                      draw_h=200.0, only=now | before, highlight=now,
+                      stage="" if not title else "as_finished")
 
 
 def item_numbers(geo: Geometry) -> dict[str, int]:
@@ -295,5 +371,5 @@ def hero_drawings(geo: Geometry) -> dict:
     """The view set for the packet, when the design carries 3D placement."""
     if not _has_boxes(geo):
         return {}
-    return {"exploded": exploded(geo), "plan": plan(geo),
+    return {"assembled": assembled(geo), "exploded": exploded(geo), "plan": plan(geo),
             "front_elevation": front_elevation(geo), "side_elevation": side_elevation(geo)}
