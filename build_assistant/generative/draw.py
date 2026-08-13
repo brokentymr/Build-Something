@@ -181,7 +181,7 @@ def _exploded_offsets(geo: Geometry) -> list[dict]:
 def _isometric(geo: Geometry, placed: list[dict], title: str, *,
                balloons: bool = True, legend: bool = True, draw_h: float = 350.0,
                only: set | None = None, highlight: set | None = None,
-               stage: str = "as_finished") -> Canvas:
+               stage: str = "as_finished", assembled_view: bool = False) -> Canvas:
     """Draw a set of positioned boxes as an isometric.
 
     Shared by every 3D view in the packet, because they differ only in where the
@@ -194,6 +194,11 @@ def _isometric(geo: Geometry, placed: list[dict], title: str, *,
         placed = [b for b in placed if b["id"] in only]
     if not placed:
         return None
+    # In an exploded view the parts stand apart, so a hairline outline is enough.
+    # Assembled, they are flush: a tilt-out hamper drew as one featureless block
+    # because the line where the door meets the carcass was the same weight as a
+    # panel seam it did not need to show. Where parts touch, the edges do the work.
+    edge, edge_w = ("#3a352c", 1.15) if assembled_view else ("#222", 0.8)
 
     def isopt(x, y, z, s, oxp, oyp):
         # y is negated: increasing depth recedes up-and-right, as it should
@@ -260,9 +265,9 @@ def _isometric(geo: Geometry, placed: list[dict], title: str, *,
                 c.polygon(face, fill=fill, stroke="#5d5347", sw=1.0)
         else:
             sh = _SHADES[i % len(_SHADES)]
-            c.polygon(top, fill=_lighten(sh), sw=0.8)
-            c.polygon(front, fill=sh, sw=0.8)
-            c.polygon(right, fill=_darken(sh, 0.88), sw=0.8)
+            c.polygon(top, fill=_lighten(sh), stroke=edge, sw=edge_w)
+            c.polygon(front, fill=sh, stroke=edge, sw=edge_w)
+            c.polygon(right, fill=_darken(sh, 0.88), stroke=edge, sw=edge_w)
         anchors[b["id"]] = P(x + w / 2, y + d / 2, z + h / 2)
 
     # Balloons key each part to the legend. Small parts cluster, so relax the
@@ -329,8 +334,8 @@ def assembled(geo: Geometry) -> Canvas | None:
     if not boxes:
         return None
     placed = [{**b, "ox": 0.0, "oy": 0.0, "oz": 0.0} for b in boxes]
-    return _isometric(geo, placed, "The finished piece",
-                      balloons=False, legend=False, draw_h=330.0)
+    return _isometric(geo, placed, "The finished piece", balloons=False,
+                      legend=False, draw_h=330.0, assembled_view=True)
 
 
 def step_view(geo: Geometry, part_ids, done_ids, title: str) -> Canvas | None:
@@ -348,6 +353,7 @@ def step_view(geo: Geometry, part_ids, done_ids, title: str) -> Canvas | None:
     placed = [{**b, "ox": 0.0, "oy": 0.0, "oz": 0.0} for b in boxes]
     return _isometric(geo, placed, title, balloons=True, legend=False,
                       draw_h=200.0, only=now | before, highlight=now,
+                      assembled_view=True,
                       stage="" if not title else "as_finished")
 
 
