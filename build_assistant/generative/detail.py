@@ -566,27 +566,72 @@ def predrill_chart(geo: Geometry) -> Canvas | None:
 # --------------------------------------------------------------------------
 
 def board_layout(nest, sheet_index: int) -> Canvas:
-    """Long stock as a linear cut run with cumulative cut marks."""
+    """One board, drawn to scale, with its pieces where the nesting actually put them.
+
+    This used to draw one full-length board per piece, each with its own offcut. A
+    board carrying two 38in arm panels end to end came out as two boards each
+    wasting 58in — the nesting was right and the drawing was not, and a builder
+    following it would have bought twice the lumber. A board is 8 or 10 inches
+    across and eight feet long, which at page scale is a legible strip, so there is
+    no reason to abstract it: draw the board, put the pieces on it, and mark where
+    to crosscut.
+    """
     sheet = nest.sheets[sheet_index - 1]
-    length = max(sheet.sheet_w, sheet.sheet_h)
-    rows = sorted(sheet.placements, key=lambda p: (p.y, p.x))
-    hgt = 60.0 + 46.0 * max(1, len(rows))
-    c = Canvas(W, hgt, stage="as_cut",
+    long_is_h = sheet.sheet_h >= sheet.sheet_w
+    length, width = max(sheet.sheet_w, sheet.sheet_h), min(sheet.sheet_w, sheet.sheet_h)
+    s = (W - 2 * MARGIN) / length
+    board_px = width * s
+
+    def along_of(p):
+        return (p.y, p.h, p.x, p.w) if long_is_h else (p.x, p.w, p.y, p.h)
+
+    pieces = sorted(sheet.placements, key=lambda p: (along_of(p)[0], along_of(p)[2]))
+    used_to = max((along_of(p)[0] + along_of(p)[1] for p in pieces), default=0.0)
+    # Distinct crosscut positions: cut the board into lengths first, rip after.
+    crosscuts = sorted({round(along_of(p)[0] + along_of(p)[1], 3) for p in pieces})
+
+    c = Canvas(W, 62.0 + board_px + 62.0, stage="as_cut",
                title=f"{nest.material_id} — board {sheet_index}, "
-                     f"{fmt_inches(length)} stock")
-    s = (W - 2 * 30.0) / length
-    y = 46.0
-    for p in rows:
-        run = max(p.w, p.h)
-        c.rect(30.0, y, length * s, 20.0, fill="#fbfaf7", sw=1.0)
-        c.rect(30.0, y, run * s, 20.0, fill="#eae4d7", sw=1.0)
+                     f"{fmt_inches(length)} x {fmt_inches(width)} stock")
+    x0, y0 = MARGIN, 56.0
+    c.rect(x0, y0, length * s, board_px, fill="#fbfaf7", sw=1.0)
+    for p in pieces:
+        a, run, across, wide = along_of(p)
+        px, py, pw, ph = x0 + a * s, y0 + across * s, run * s, wide * s
+        c.rect(px, py, pw, ph, fill="#eae4d7", sw=1.0)
         pid = p.part_id.rstrip("0123456789")
-        c.text(30.0 + run * s / 2, y + 14, pid, size=9, weight="bold")
-        c.dim_horizontal(30.0, 30.0 + run * s, y + 34, fmt_inches(run))
-        if run < length - 0.5:
-            c.text(30.0 + (run + (length - run) / 2) * s, y + 14,
-                   f"offcut {fmt_inches(length - run)}", size=7.5, color="#a29b8f")
-        y += 46.0
+        if ph >= 11.0 and pw >= len(pid) * 6.0:
+            c.text(px + pw / 2, py + ph / 2 + 3.5, pid, size=9, weight="bold")
+        else:
+            # too small to letter inside — the piece list under the drawing carries it
+            c.text(px + pw / 2, py + ph / 2 + 2.5, pid, size=6.5)
+    if used_to < length - 0.5:
+        tail = f"offcut {fmt_inches(length - used_to)}"
+        # A 3-3/4in tail is 18px at page scale; the label written across its middle
+        # spills over the pieces beside it and past the end of the board.
+        if (length - used_to) * s >= len(tail) * 4.4:
+            c.text(x0 + (used_to + (length - used_to) / 2) * s, y0 + board_px / 2 + 3,
+                   tail, size=7.5, color="#a29b8f")
+        else:
+            c.text(x0 + length * s, y0 + board_px + 18, tail,
+                   size=7.5, anchor="end", color="#a29b8f")
+    # crosscut marks, cumulative from the end of the board you start at
+    for cut in crosscuts:
+        if cut >= length - 0.5:
+            continue
+        c.line(x0 + cut * s, y0 - 6, x0 + cut * s, y0 + board_px + 6, w=0.8, dash="3,2")
+    if crosscuts:
+        c.dim_horizontal(x0, x0 + crosscuts[-1] * s, y0 + board_px + 30,
+                         fmt_inches(crosscuts[-1]), above=False)
+    runs = {}
+    for p in pieces:
+        a, run, _, wide = along_of(p)
+        runs.setdefault((p.part_id.rstrip("0123456789"), round(run, 3), round(wide, 3)), 0)
+        runs[(p.part_id.rstrip("0123456789"), round(run, 3), round(wide, 3))] += 1
+    legend = "  ·  ".join(
+        f"{pid} x{n} @ {fmt_inches(run)} x {fmt_inches(wide)}"
+        for (pid, run, wide), n in runs.items())
+    c.text(W / 2, 62.0 + board_px + 52.0, legend[:150], size=7.5, color="#6b655c")
     return c
 
 
